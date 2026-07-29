@@ -12,6 +12,8 @@ use std::os::raw::c_char;
 use std::process::{Command, Stdio};
 use std::thread;
 
+mod config;
+
 /// Win-win logging: writes each line to stdout (so a terminal-launched run
 /// still shows it inline) AND appends it to /tmp/vocal.log. That file is the
 /// key — even when macOS spawns its own terminal-less instance to handle a
