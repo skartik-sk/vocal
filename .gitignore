@@ -1,0 +1,13 @@
+# Rust build output
+/target/
+
+# macOS
+.DS_Store
+
+# Swift Package Manager build artifacts
+.build/
+.swiftpm/
+DerivedData/
+
+# Generated audio / test output
+*.wav

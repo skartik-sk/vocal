@@ -1,0 +1,16 @@
+[package]
+name = "vocal"
+version = "0.1.0"
+edition = "2024"
+# This section tells cargo-bundle how to build Vocal.app
+[package.metadata.bundle]
+name = "Vocal"
+identifier = "com.kartik.vocal"
+category = "public.app-category.utilities"
+short_description = "A lightning-fast local TTS reader."
+osx_info_plist_exts = ["Info.plist.ext"]
+
+[dependencies]
+objc2 = "0.5.2"
+objc2-foundation = { version = "0.2.2", features = ["NSString"] }
+objc2-app-kit = { version = "0.2.2", features = ["NSApplication", "NSPasteboard"] }

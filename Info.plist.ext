@@ -1,0 +1,20 @@
+<!-- Fragment spliced by cargo-bundle INTO the template <dict>.
+     Must contain ONLY <key>/value pairs — NO <?xml?>, <plist> or <dict> wrapper. -->
+<key>LSUIElement</key>
+<true/>
+<key>NSServices</key>
+<array>
+    <dict>
+        <key>NSMenuItem</key>
+        <dict>
+            <key>default</key>
+            <string>Speak with Vocal</string>
+        </dict>
+        <key>NSMessage</key>
+        <string>handleSpeakText</string>
+        <key>NSSendTypes</key>
+        <array>
+            <string>NSStringPboardType</string>
+        </array>
+    </dict>
+</array>
