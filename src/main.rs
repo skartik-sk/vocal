@@ -12,7 +12,7 @@ use std::os::raw::c_char;
 use std::process::{Command, Stdio};
 use std::thread;
 
-mod config;
+use vocal::VocalConfig;
 
 /// Win-win logging: writes each line to stdout (so a terminal-launched run
 /// still shows it inline) AND appends it to /tmp/vocal.log. That file is the
@@ -90,7 +90,7 @@ declare_class!(
                              use std::io::Write;
                                         // Single source of truth for paths/voice: vocal.config (gitignored),
                             // falling back to baked-in defaults. Passed to the worker via env vars.
-                            let cfg = config::VocalConfig::load(std::path::Path::new("vocal.config"));
+                            let cfg = VocalConfig::load(std::path::Path::new("vocal.config"));
                             vlog!("🤖 Booting Native Swift Engine (model={}, speaker={})", cfg.model_path, cfg.speaker);
 
                                         // Start the compiled Swift binary
