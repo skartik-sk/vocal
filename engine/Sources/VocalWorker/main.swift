@@ -87,10 +87,12 @@ struct VocalWorker {
         // Sampling temperature. 0.8 is the Qwen3-TTS sweet spot; tune via VOCAL_TEMPERATURE.
         let temperature = Float(env["VOCAL_TEMPERATURE"] ?? "0.8") ?? 0.8
 
-        // Streaming mode (default on): play audio in ~0.6s chunks as it's generated, so
-        // speech starts during the warmup window instead of after the whole clause.
-        // VOCAL_STREAM=0 falls back to the proven whole-clip path.
-        let useStream = (env["VOCAL_STREAM"] ?? "1") != "0"
+        // Playback mode. Default = whole-clip (generate the full clause, then play): it is
+        // smoother and far lower memory, because at <1× realtime the extra decode work that
+        // streaming interleaves onto the GPU starves the playback buffer and balloons memory.
+        // Set VOCAL_STREAM=1 to opt into chunked streaming (faster first-audio, but choppy
+        // and heavier until generation runs faster than realtime).
+        let useStream = (env["VOCAL_STREAM"] ?? "0") != "0"
 
         print("[VocalWorker] 🚀 Booting Qwen3-TTS engine... (mode: \(useStream ? "streaming" : "whole-clip"))")
 

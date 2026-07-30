@@ -76,7 +76,12 @@ extension Qwen3TTSModel {
                         let (wav, _) = speechTokenizer.decode(codes)
                         let trimmed = wav[0]
                         eval(trimmed)
-                        return trimmed.asArray(Float.self)
+                        let out = trimmed.asArray(Float.self)
+                        // Each chunk decode materializes large 24 kHz arrays. Free them now so
+                        // memory stays flat across the many per-clause decodes (otherwise it
+                        // balloons to several GB).
+                        GPU.clearCache()
+                        return out
                     }
 
                     // Emit audio for tokens [nextEmit ..< nextEmit+chunkTokens) using a
@@ -181,6 +186,7 @@ extension Qwen3TTSModel {
                         eval(fullWav)
                         let validLen = fullLens[0].item(Int.self)
                         let fullSamples: [Float] = fullWav[0].asArray(Float.self)
+                        GPU.clearCache()
                         let tailLo = min(nextEmit * samplesPerToken, validLen)
                         if validLen > tailLo {
                             var tail = Array(fullSamples[tailLo..<validLen])
