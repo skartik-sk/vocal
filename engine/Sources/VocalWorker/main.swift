@@ -76,7 +76,7 @@ struct VocalWorker {
 
         let env = ProcessInfo.processInfo.environment
         let modelPath = env["VOCAL_MODEL_PATH"]
-            ?? "/Users/singupallikartik/Developer/fun-projects/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit"
+            ?? "/Users/singupallikartik/Developer/fun-projects/Qwen3-TTS-12Hz-0.6B-CustomVoice-4bit"
         let speaker = env["VOCAL_SPEAKER"] ?? "Aiden"
         let language = env["VOCAL_LANGUAGE"] ?? "english"
         // Emotion/style guidance for CustomVoice mode (e.g. "calm, observational").

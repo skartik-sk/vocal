@@ -1,7 +1,7 @@
 # Vocal runtime config (copy to vocal.config and edit). vocal.config is gitignored.
 # macOS launches the Services app with an unpredictable cwd, so use ABSOLUTE paths.
 
-model_path = /Users/singupallikartik/Developer/fun-projects/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit
+model_path = /Users/singupallikartik/Developer/fun-projects/Qwen3-TTS-12Hz-0.6B-CustomVoice-4bit
 engine_dir = /Users/singupallikartik/Developer/fun-projects/vocal/engine
 speaker = Dylan
 language = English
