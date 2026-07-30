@@ -811,6 +811,7 @@ public class Qwen3TTSModel: Module {
         }
 
         // Prepare inputs with speaker
+        let profileStart = Date()
         let (inputEmbeds, trailingTextHidden, ttsPadEmbed) = prepareGenerationInputs(
             text: text,
             language: language,
@@ -948,7 +949,10 @@ public class Qwen3TTSModel: Module {
         let codes = MLX.stacked(codesArray, axis: 1)  // [1, seq_len, 16]
 
         // Decode to audio
+        let tDecode = Date()
         let (audio, audioLengths) = speechTokenizer!.decode(codes)
+        eval(audio, audioLengths)
+        let decodeTime = Date().timeIntervalSince(tDecode)
 
         // Trim to valid length
         let validLen = audioLengths[0].item(Int.self)
@@ -956,6 +960,16 @@ public class Qwen3TTSModel: Module {
 
         if validLen > 0 && validLen < audioTrimmed.dim(0) {
             audioTrimmed = audioTrimmed[0..<validLen]
+        }
+
+        if ProcessInfo.processInfo.environment["VOCAL_PROFILE"] != nil {
+            let total = Date().timeIntervalSince(profileStart)
+            let n = generatedCodes.count
+            let genTime = total - decodeTime
+            let tokRate = genTime > 0 ? Double(n) / genTime : 0
+            let audioSecs = Double(validLen) / 24000.0
+            let peakGB = Double(GPU.peakMemory) / 1e9
+            print("[profile] tokens=\(n) gen=\(String(format: "%.2f", genTime))s (@\(String(format: "%.1f", tokRate)) tok/s) decode=\(String(format: "%.2f", decodeTime))s audio=\(String(format: "%.2f", audioSecs))s RTF=\(String(format: "%.2f", total / max(audioSecs, 0.001))) peakMem=\(String(format: "%.2f", peakGB))GB")
         }
 
         return audioTrimmed
