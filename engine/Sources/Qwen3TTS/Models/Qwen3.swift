@@ -127,7 +127,7 @@ public class Qwen3TTSModel: Module {
 
     /// Sample next token from logits using categorical sampling
     /// Matches Python mlx_lm.sample_utils implementation exactly
-    private func sampleToken(
+    func sampleToken(
         _ logits: MLXArray,
         temperature: Float = 0.9,
         topK: Int = 50,
@@ -256,7 +256,7 @@ public class Qwen3TTSModel: Module {
     ///   - language: Language code (auto, chinese, english, etc.)
     ///   - speaker: Speaker name for CustomVoice mode (e.g., "Vivian", "Ryan")
     ///   - instruct: Voice description (VoiceDesign) or emotion/style instruction (CustomVoice)
-    private func prepareGenerationInputs(
+    func prepareGenerationInputs(
         text: String,
         language: String = "auto",
         speaker: String? = nil,
