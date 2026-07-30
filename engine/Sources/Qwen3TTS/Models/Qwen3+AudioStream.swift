@@ -84,7 +84,10 @@ extension Qwen3TTSModel {
                     func emitChunk() {
                         let chunkEnd = nextEmit + chunkTokens
                         let windowStart = max(0, nextEmit - contextTokens)
-                        let windowEnd = min(generatedCodes.count, chunkEnd + lookaheadTokens)
+                        // Guarantee a >= contextTokens decode window so the voice is stable on
+                        // every chunk — including the first (warmup), which would otherwise decode
+                        // a tiny ~16-token window and sound drifty/reduced.
+                        let windowEnd = min(generatedCodes.count, max(chunkEnd + lookaheadTokens, windowStart + contextTokens))
                         guard windowEnd > windowStart else { return }
                         let wav = decodeRange(windowStart, windowEnd)
                         let emitEnd = min(chunkEnd, generatedCodes.count)
@@ -155,8 +158,14 @@ extension Qwen3TTSModel {
                         }
                         currentInput = textEmbed + codecEmbed
 
-                        // Emit every chunk once enough lookahead exists.
-                        while generatedCodes.count >= nextEmit + chunkTokens + lookaheadTokens {
+                        // Emit a chunk once a STABLE decode window is available. The first chunk
+                        // waits for ~contextTokens of audio (warmup) so the voice is stable from
+                        // the start, instead of emitting immediately on a tiny window.
+                        let neededToEmit = { () -> Int in
+                            let ws = max(0, nextEmit - contextTokens)
+                            return max(nextEmit + chunkTokens + lookaheadTokens, ws + contextTokens)
+                        }
+                        while generatedCodes.count >= neededToEmit() {
                             emitChunk()
                         }
                     }
