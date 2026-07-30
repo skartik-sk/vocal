@@ -81,7 +81,9 @@ struct VocalWorker {
         let language = env["VOCAL_LANGUAGE"] ?? "english"
         // Emotion/style guidance for CustomVoice mode (e.g. "calm, observational").
         // nil = plain delivery (no instruction). Set via VOCAL_INSTRUCT from the Rust host.
-        let instruct = env["VOCAL_INSTRUCT"]
+        // Rust now sends "" when no instruct is set; treat empty/whitespace as "no instruct".
+        let rawInstruct = env["VOCAL_INSTRUCT"]
+        let instruct = (rawInstruct?.trimmingCharacters(in: .whitespaces).isEmpty ?? true) ? nil : rawInstruct
         // Sampling temperature. The old hardcoded 0.1 is far too low — it makes the
         // model robotic and more likely to skip/stutter words. 0.8 is the Qwen3-TTS
         // sweet spot; tune via VOCAL_TEMPERATURE from the Rust host.
