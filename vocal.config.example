@@ -1,9 +1,19 @@
 # Vocal runtime config (copy to vocal.config and edit). vocal.config is gitignored.
 # macOS launches the Services app with an unpredictable cwd, so use ABSOLUTE paths.
+# backend: "swift" (Qwen3-TTS via the Swift engine) or "chatterbox" (Python mlx-audio).
 
+backend = swift
+
+# --- swift / Qwen3-TTS backend ---
 model_path = /Users/singupallikartik/Developer/fun-projects/Qwen3-TTS-12Hz-0.6B-CustomVoice-4bit
 engine_dir = /Users/singupallikartik/Developer/fun-projects/vocal/engine
 speaker = Dylan
 language = English
 instruct = be very Fast, Serious, and not skip any word like you are reading audiobook
 temperature = 0.8
+
+# --- chatterbox / mlx-audio backend (set backend = chatterbox to use) ---
+python_bin = /Users/singupallikartik/Developer/fun-projects/vocal/src/.venv/bin/python
+chatterbox_worker = /Users/singupallikartik/Developer/fun-projects/vocal/scripts/chatterbox_worker.py
+chatterbox_model = mlx-community/chatterbox-turbo-4bit
+# ref_audio = /absolute/path/to/voice.wav   # optional voice cloning

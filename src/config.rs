@@ -2,30 +2,46 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Runtime configuration for Vocal. Loaded from a gitignored `vocal.config`
-/// (`key = value` lines); falls back to baked-in defaults so the app works on
-/// the dev machine even without the file. Rust is the single source of truth —
-/// it passes these to the Swift worker via env vars (see main.rs).
+/// (`key = value` lines); falls back to baked-in defaults. Rust is the single
+/// source of truth — it builds the worker launch spec (see `worker.rs`) and
+/// passes settings to the worker via env vars.
 #[derive(Debug, Clone)]
 pub struct VocalConfig {
+    /// `"swift"` (Qwen3-TTS via the Swift engine) or `"chatterbox"` (via Python mlx-audio).
+    pub backend: String,
+
+    // --- swift / Qwen3-TTS backend ---
     pub model_path: String,
     pub engine_dir: String,
     pub speaker: String,
     pub language: String,
     pub instruct: Option<String>,
     pub temperature: String,
+
+    // --- chatterbox / mlx-audio backend ---
+    pub python_bin: String,
+    pub chatterbox_worker: String,
+    pub chatterbox_model: String,
+    pub ref_audio: Option<String>,
 }
 
 impl Default for VocalConfig {
     fn default() -> Self {
+        let home = "/Users/singupallikartik/Developer/fun-projects/vocal";
         Self {
+            backend: "chatterbox".into(),
             model_path: "/Users/singupallikartik/Developer/fun-projects/Qwen3-TTS-12Hz-0.6B-CustomVoice-4bit".into(),
-            engine_dir: "/Users/singupallikartik/Developer/fun-projects/vocal/engine".into(),
+            engine_dir: format!("{home}/engine"),
             speaker: "Dylan".into(),
             language: "English".into(),
             instruct: Some(
                 "be very Fast, Serious, and not skip any word like you are reading audiobook".into(),
             ),
             temperature: "0.8".into(),
+            python_bin: format!("{home}/src/.venv/bin/python"),
+            chatterbox_worker: format!("{home}/scripts/chatterbox_worker.py"),
+            chatterbox_model: "mlx-community/chatterbox-turbo-4bit".into(),
+            ref_audio: None,
         }
     }
 }
@@ -38,12 +54,17 @@ impl VocalConfig {
         if let Ok(text) = fs::read_to_string(path) {
             for (key, value) in parse_kv(&text) {
                 match key.as_str() {
+                    "backend" => cfg.backend = value,
                     "model_path" => cfg.model_path = value,
                     "engine_dir" => cfg.engine_dir = value,
                     "speaker" => cfg.speaker = value,
                     "language" => cfg.language = value,
                     "instruct" => cfg.instruct = if value.is_empty() { None } else { Some(value) },
                     "temperature" => cfg.temperature = value,
+                    "python_bin" => cfg.python_bin = value,
+                    "chatterbox_worker" => cfg.chatterbox_worker = value,
+                    "chatterbox_model" => cfg.chatterbox_model = value,
+                    "ref_audio" => cfg.ref_audio = if value.is_empty() { None } else { Some(value) },
                     _ => {} // ignore unknown keys (forward-compatible)
                 }
             }
@@ -51,12 +72,12 @@ impl VocalConfig {
         cfg
     }
 
-    /// Path to the compiled VocalWorker binary: `<engine_dir>/.build/release/VocalWorker`.
+    /// Path to the compiled Swift VocalWorker binary: `<engine_dir>/.build/release/VocalWorker`.
     pub fn engine_binary(&self) -> PathBuf {
         PathBuf::from(&self.engine_dir).join(".build/release/VocalWorker")
     }
 
-    /// Working directory for the worker (so `default.metallib` is found via cwd).
+    /// Working directory for the Swift worker (so `default.metallib` is found via cwd).
     pub fn engine_cwd(&self) -> PathBuf {
         PathBuf::from(&self.engine_dir)
     }
@@ -91,21 +112,21 @@ mod tests {
 
     #[test]
     fn load_overrides_defaults_and_handles_missing_file() {
-        // Missing file -> all defaults.
         let none = VocalConfig::load(Path::new("/does/not/exist/vocal.config"));
         assert_eq!(none.speaker, "Dylan");
+        assert_eq!(none.backend, "chatterbox");
 
-        // Temp file with overrides.
         let p = std::env::temp_dir().join("vocal_config_test.cfg");
         {
             let mut f = std::fs::File::create(&p).unwrap();
             writeln!(f, "speaker = Aiden").unwrap();
-            writeln!(f, "instruct =").unwrap(); // empty -> None
+            writeln!(f, "backend = chatterbox").unwrap();
+            writeln!(f, "instruct =").unwrap();
         }
         let cfg = VocalConfig::load(&p);
         assert_eq!(cfg.speaker, "Aiden");
+        assert_eq!(cfg.backend, "chatterbox");
         assert_eq!(cfg.instruct, None);
-        // Unspecified fields keep defaults.
         assert_eq!(cfg.temperature, "0.8");
         let _ = std::fs::remove_file(&p);
     }

@@ -56,24 +56,34 @@ impl VocalMcp {
         description = "Speak the given text aloud on this Mac using local on-device Qwen3-TTS (streaming). Returns when playback finishes."
     )]
     async fn speak(&self, Parameters(args): Parameters<SpeakArgs>) -> Json<SpeakResult> {
-        let cfg = VocalConfig::load(std::path::Path::new("vocal.config"));
+        let mut cfg = VocalConfig::load(std::path::Path::new("vocal.config"));
+        // Apply per-call overrides (used by the swift backend; ignored by chatterbox).
+        if let Some(s) = args.speaker {
+            cfg.speaker = s;
+        }
+        if let Some(l) = args.language {
+            cfg.language = l;
+        }
+        if let Some(i) = args.instruct {
+            cfg.instruct = Some(i);
+        }
+        if let Some(t) = args.temperature {
+            cfg.temperature = t;
+        }
 
-        let mut cmd = Command::new(cfg.engine_binary());
-        cmd.current_dir(cfg.engine_cwd())
-            .env("VOCAL_MODEL_PATH", &cfg.model_path)
-            .env("VOCAL_SPEAKER", args.speaker.as_deref().unwrap_or(&cfg.speaker))
-            .env("VOCAL_LANGUAGE", args.language.as_deref().unwrap_or(&cfg.language))
-            .env(
-                "VOCAL_INSTRUCT",
-                args.instruct.as_deref().or(cfg.instruct.as_deref()).unwrap_or(""),
-            )
-            .env(
-                "VOCAL_TEMPERATURE",
-                args.temperature.as_deref().unwrap_or(&cfg.temperature),
-            )
-            .stdin(Stdio::piped())
+        // Build the worker Command from the active backend (swift | chatterbox).
+        let spec = vocal::worker::launch_spec(&cfg);
+        let mut cmd = Command::new(&spec.program);
+        cmd.args(&spec.args);
+        for (k, v) in &spec.envs {
+            cmd.env(k, v);
+        }
+        if let Some(cwd) = &spec.cwd {
+            cmd.current_dir(cwd);
+        }
+        cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::inherit())
             .kill_on_drop(true);
 
         let mut child = match cmd.spawn() {

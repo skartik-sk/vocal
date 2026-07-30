@@ -74,84 +74,81 @@ declare_class!(
             let c_string: *const c_char = msg_send![ns_text, UTF8String];
 
             // 6. Safely wrap it in a Rust CStr
-            let c_str = CStr::from_ptr(c_string);
+            let c_str = unsafe { CStr::from_ptr(c_string) };
 
             // 7. Convert to a standard Rust String!
             let final_rust_string = c_str.to_str().unwrap().to_owned();
 
-
-
             vlog!("Successfully grabbed text from macOS:");
             vlog!("-> {}\n", final_rust_string);
-            // Let's test your new splitter!
-                        let sentence_queue = split_line_form_para(&final_rust_string);
-                        vlog!("🔪 Sliced into {} sentences:", sentence_queue.len());
-                        thread::spawn(move || {
-                             use std::io::Write;
-                                        // Single source of truth for paths/voice: vocal.config (gitignored),
-                            // falling back to baked-in defaults. Passed to the worker via env vars.
-                            let cfg = VocalConfig::load(std::path::Path::new("vocal.config"));
-                            vlog!("🤖 Booting Native Swift Engine (model={}, speaker={})", cfg.model_path, cfg.speaker);
 
-                                        // Start the compiled Swift binary
-                                        // ... existing code ...
-                                                        // Start the compiled Swift binary
-                                                        // model + metallib paths now handled by VocalWorker (VOCAL_MODEL_PATH + current_dir)
+            let sentence_queue = split_line_form_para(&final_rust_string);
+            vlog!("🔪 Sliced into {} sentences:", sentence_queue.len());
 
-                                                                      // Start the compiled Swift binary
-                                                                      let mut child = Command::new(cfg.engine_binary())
-                                            .current_dir(cfg.engine_cwd())
-                                            .env("VOCAL_MODEL_PATH", &cfg.model_path).env("VOCAL_SPEAKER", &cfg.speaker).env("VOCAL_LANGUAGE", &cfg.language).env("VOCAL_INSTRUCT", cfg.instruct.as_deref().unwrap_or("")).env("VOCAL_TEMPERATURE", &cfg.temperature)
-                                                                          .stdin(Stdio::piped()).stdout(Stdio::piped())
-                                                                          // metallib is found via current_dir (swift-qwen3-tts/default.metallib)
-                                                                          .spawn()
-                                                                          .expect("Failed to start Native Swift Engine");
-                                        // ... existing code ...
+            thread::spawn(move || {
+                use std::io::Write;
 
-                                        // Take the standard input pipe
-                                        let mut stdin = child.stdin.take().expect("Failed to open stdin");
+                // Single source of truth: vocal.config (gitignored) + baked-in defaults.
+                let cfg = VocalConfig::load(std::path::Path::new("vocal.config"));
+                vlog!("🤖 Booting TTS worker (backend={})...", cfg.backend);
 
-                                        // Capture the Swift worker's stdout and tee it into our log
-                                        // file too, so its "Generating native audio for: ..." lines
-                                        // are visible via `tail -f /tmp/vocal.log` without editing
-                                        // the swift-qwen3-tts repo.
-                                        let child_stdout = child.stdout.take();
-                                        let swift_reader = thread::spawn(move || {
-                                            use std::io::BufRead;
-                                            if let Some(out) = child_stdout {
-                                                for line in std::io::BufReader::new(out)
-                                                    .lines()
-                                                    .map_while(Result::ok)
-                                                {
-                                                    vlog!("[swift] {}", line);
-                                                }
-                                            }
-                                        });
+                // Build the worker Command from the active backend (swift | chatterbox).
+                let spec = vocal::worker::launch_spec(&cfg);
+                let mut cmd = Command::new(&spec.program);
+                cmd.args(&spec.args);
+                for (k, v) in &spec.envs {
+                    cmd.env(k, v);
+                }
+                if let Some(cwd) = &spec.cwd {
+                    cmd.current_dir(cwd);
+                }
+                let mut child = cmd
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .spawn()
+                    .expect("Failed to start TTS worker");
 
-                                        // Stream sentences to Swift one by one
-                                        for (i, sentence) in sentence_queue.iter().enumerate() {
-                                            vlog!("  🔊 Streaming sentence {} to Native Worker...", i + 1);
-                                            writeln!(stdin, "{}", sentence).expect("Failed to write to native worker");
-                                        }
+                let mut stdin = child.stdin.take().expect("Failed to open stdin");
 
-                                        // Drop stdin! This tells Swift "We are done reading, shut down!"
-                                        drop(stdin);
+                // Capture the worker's stdout and tee it into the log file.
+                let child_stdout = child.stdout.take();
+                let worker_reader = thread::spawn(move || {
+                    use std::io::BufRead;
+                    if let Some(out) = child_stdout {
+                        for line in std::io::BufReader::new(out)
+                            .lines()
+                            .map_while(Result::ok)
+                        {
+                            vlog!("[worker] {}", line);
+                        }
+                    }
+                });
 
-                                        // Wait for Swift to finish generating audio and gracefully shut down
-                                        let _ = child.wait().expect("Failed to wait on child");
-                                        let _ = swift_reader.join();
+                // Stream sentences to the worker one by one (one per line).
+                for (i, sentence) in sentence_queue.iter().enumerate() {
+                    vlog!("  🔊 Streaming sentence {} to worker...", i + 1);
+                    writeln!(stdin, "{}", sentence).expect("Failed to write to worker");
+                }
 
-                                        vlog!("🛑 Finished reading. Swift engine killed and RAM freed!");
-                                    });
+                // Drop stdin! This tells the worker "we are done, shut down".
+                drop(stdin);
+
+                let _ = child.wait().expect("Failed to wait on child");
+                let _ = worker_reader.join();
+
+                vlog!("🛑 Finished reading. Worker killed and RAM freed!");
+            });
         }
     }
 );
+
 fn split_line_form_para(data: &String) -> Vec<String> {
     data.split_terminator(&['.', '?', '!'][..])
         .map(|s| s.trim().to_string()) // Convert to String and strip extra spaces
         .filter(|s| !s.is_empty()) // Ignore empty chunks
         .collect()
 }
+
 fn main() {
     vlog!(
         "=== Vocal started (pid {}, logs -> /tmp/vocal.log) ===",

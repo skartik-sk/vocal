@@ -6,5 +6,6 @@
 //! voice defaults.
 
 pub mod config;
+pub mod worker;
 
 pub use config::VocalConfig;
