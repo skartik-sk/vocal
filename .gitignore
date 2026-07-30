@@ -9,6 +9,10 @@
 .swiftpm/
 DerivedData/
 
+# Python virtualenvs (stray src/.venv etc.)
+.venv/
+venv/
+
 # Generated audio / test output
 *.wav
 

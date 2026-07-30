@@ -18,7 +18,7 @@ pub struct VocalConfig {
 impl Default for VocalConfig {
     fn default() -> Self {
         Self {
-            model_path: "/Users/singupallikartik/Developer/fun-projects/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit".into(),
+            model_path: "/Users/singupallikartik/Developer/fun-projects/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit".into(),
             engine_dir: "/Users/singupallikartik/Developer/fun-projects/vocal/engine".into(),
             speaker: "Dylan".into(),
             language: "English".into(),
