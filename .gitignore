@@ -11,3 +11,6 @@ DerivedData/
 
 # Generated audio / test output
 *.wav
+
+# Machine-specific runtime config (absolute paths)
+/vocal.config

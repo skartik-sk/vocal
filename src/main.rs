@@ -88,7 +88,10 @@ declare_class!(
                         vlog!("🔪 Sliced into {} sentences:", sentence_queue.len());
                         thread::spawn(move || {
                              use std::io::Write;
-                                        vlog!("🤖 Booting Native Swift Engine...");
+                                        // Single source of truth for paths/voice: vocal.config (gitignored),
+                            // falling back to baked-in defaults. Passed to the worker via env vars.
+                            let cfg = config::VocalConfig::load(std::path::Path::new("vocal.config"));
+                            vlog!("🤖 Booting Native Swift Engine (model={}, speaker={})", cfg.model_path, cfg.speaker);
 
                                         // Start the compiled Swift binary
                                         // ... existing code ...
@@ -96,9 +99,9 @@ declare_class!(
                                                         // model + metallib paths now handled by VocalWorker (VOCAL_MODEL_PATH + current_dir)
 
                                                                       // Start the compiled Swift binary
-                                                                      let mut child = Command::new("/Users/singupallikartik/Developer/fun-projects/swift-qwen3-tts/.build/release/VocalWorker")
-                                            .current_dir("/Users/singupallikartik/Developer/fun-projects/swift-qwen3-tts")
-                                            .env("VOCAL_MODEL_PATH", "/Users/singupallikartik/Developer/fun-projects/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit").env("VOCAL_SPEAKER", "Dylan").env("VOCAL_LANGUAGE", "English").env("VOCAL_INSTRUCT", "be very Fast, Serious, and not skip any word like you are reading audiobook").env("VOCAL_TEMPERATURE", "0.8")
+                                                                      let mut child = Command::new(cfg.engine_binary())
+                                            .current_dir(cfg.engine_cwd())
+                                            .env("VOCAL_MODEL_PATH", &cfg.model_path).env("VOCAL_SPEAKER", &cfg.speaker).env("VOCAL_LANGUAGE", &cfg.language).env("VOCAL_INSTRUCT", cfg.instruct.as_deref().unwrap_or("")).env("VOCAL_TEMPERATURE", &cfg.temperature)
                                                                           .stdin(Stdio::piped()).stdout(Stdio::piped())
                                                                           // metallib is found via current_dir (swift-qwen3-tts/default.metallib)
                                                                           .spawn()
