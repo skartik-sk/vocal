@@ -16,8 +16,8 @@ extension Qwen3TTSModel {
     public func generateAudioStream(
         text: String,
         speaker: String,
-        language: String = "auto",
         instruct: String? = nil,
+        language: String = "auto",
         temperature: Float = 0.9,
         topK: Int = 50,
         topP: Float = 1.0,

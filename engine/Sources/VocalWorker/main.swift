@@ -17,7 +17,7 @@ final class AudioPlayer {
     private let engine = AVAudioEngine()
     private let node = AVAudioPlayerNode()
     private let format: AVAudioFormat
-    
+
     // Thread-safe counters to track background audio chunks
     private var pendingBuffers = 0
     private let queueCondition = NSCondition()
@@ -39,7 +39,7 @@ final class AudioPlayer {
         buffer.frameLength = frames
         let dst = buffer.floatChannelData![0]
         for i in 0..<samples.count { dst[i] = samples[i] }
-        
+
         // Safely register that a new clip is playing
         queueCondition.lock()
         pendingBuffers += 1
@@ -56,7 +56,7 @@ final class AudioPlayer {
             self.queueCondition.unlock()
         }
     }
-    
+
     /// Blocks only at the very end of the app to ensure the final sentence finishes.
     func waitUntilFinished() {
         queueCondition.lock()
@@ -80,16 +80,19 @@ struct VocalWorker {
         let speaker = env["VOCAL_SPEAKER"] ?? "Aiden"
         let language = env["VOCAL_LANGUAGE"] ?? "english"
         // Emotion/style guidance for CustomVoice mode (e.g. "calm, observational").
-        // nil = plain delivery (no instruction). Set via VOCAL_INSTRUCT from the Rust host.
-        // Rust now sends "" when no instruct is set; treat empty/whitespace as "no instruct".
+        // nil = plain delivery (no instruction). Rust sends "" when none is set, so
+        // treat empty/whitespace as "no instruct".
         let rawInstruct = env["VOCAL_INSTRUCT"]
         let instruct = (rawInstruct?.trimmingCharacters(in: .whitespaces).isEmpty ?? true) ? nil : rawInstruct
-        // Sampling temperature. The old hardcoded 0.1 is far too low — it makes the
-        // model robotic and more likely to skip/stutter words. 0.8 is the Qwen3-TTS
-        // sweet spot; tune via VOCAL_TEMPERATURE from the Rust host.
+        // Sampling temperature. 0.8 is the Qwen3-TTS sweet spot; tune via VOCAL_TEMPERATURE.
         let temperature = Float(env["VOCAL_TEMPERATURE"] ?? "0.8") ?? 0.8
 
-        print("[VocalWorker] 🚀 Booting Qwen3-TTS engine...")
+        // Streaming mode (default on): play audio in ~0.6s chunks as it's generated, so
+        // speech starts during the warmup window instead of after the whole clause.
+        // VOCAL_STREAM=0 falls back to the proven whole-clip path.
+        let useStream = (env["VOCAL_STREAM"] ?? "1") != "0"
+
+        print("[VocalWorker] 🚀 Booting Qwen3-TTS engine... (mode: \(useStream ? "streaming" : "whole-clip"))")
 
         // Audio output (Qwen3-TTS emits 24 kHz mono Float samples).
         let player = AudioPlayer()
@@ -100,7 +103,7 @@ struct VocalWorker {
         let model = try await Qwen3TTSModel.fromPretrained(modelPath)
         print("[VocalWorker] ✅ Model loaded in \(String(format: "%.2f", Date().timeIntervalSince(startLoad)))s (speaker=\(speaker), language=\(language), instruct=\(instruct ?? "none"), temp=\(temperature)). Waiting for sentences...")
 
-        // Helper to chunk text by punctuation so it streams faster
+        // Helper to chunk text by punctuation so it streams faster.
         func chunkText(_ text: String) -> [String] {
             var chunks = [String]()
             var currentChunk = ""
@@ -123,28 +126,39 @@ struct VocalWorker {
         while let line = readLine() {
             let fullText = line.trimmingCharacters(in: .whitespacesAndNewlines)
             if fullText.isEmpty { continue }
-            
+
             let clauses = chunkText(fullText)
             for text in clauses {
                 print("text:-> \(text) ")
                 let startGen = Date()
-                
-                // Your exact MLX Generation code (Untouched)
-                let audio = try await model.generate(
-                    text: text,
-                    speaker: speaker,
-                    instruct: instruct,
-                    language: language,
-                    temperature: temperature
-                )
-                eval(audio)
-                
-                let samples = audio.asArray(Float.self)
-                let secs = Double(samples.count) / Double(model.sampleRate)
-                print("[VocalWorker] 🗣️ \(String(format: "%.1f", secs))s audio in \(String(format: "%.2f", Date().timeIntervalSince(startGen)))s — playing: \"\(text.prefix(50))\"")
-                
-                // Use our new non-blocking queue function to instantly jump to the next sentence!
-                player.queueAndPlay(samples)
+
+                if useStream {
+                    // Streaming: yield ~0.6s audio chunks as codec tokens are produced,
+                    // feeding the non-blocking player so playback overlaps generation.
+                    let stream = model.generateAudioStream(
+                        text: text, speaker: speaker, instruct: instruct,
+                        language: language, temperature: temperature)
+                    var firstChunkAt: TimeInterval = 0
+                    var chunkCount = 0
+                    for try await event in stream {
+                        if case .chunk(let samples) = event {
+                            if firstChunkAt == 0 { firstChunkAt = Date().timeIntervalSince(startGen) }
+                            chunkCount += 1
+                            player.queueAndPlay(samples)
+                        }
+                    }
+                    print("[VocalWorker] 🌊 \(chunkCount) chunks, first in \(String(format: "%.2f", firstChunkAt))s — playing: \"\(text.prefix(50))\"")
+                } else {
+                    // Whole-clip fallback (proven path).
+                    let audio = try await model.generate(
+                        text: text, speaker: speaker, instruct: instruct,
+                        language: language, temperature: temperature)
+                    eval(audio)
+                    let samples = audio.asArray(Float.self)
+                    let secs = Double(samples.count) / Double(model.sampleRate)
+                    print("[VocalWorker] 🗣️ \(String(format: "%.1f", secs))s audio in \(String(format: "%.2f", Date().timeIntervalSince(startGen)))s — playing: \"\(text.prefix(50))\"")
+                    player.queueAndPlay(samples)
+                }
 
                 // Release MLX's cached buffers between sentences to keep memory flat.
                 GPU.clearCache()
