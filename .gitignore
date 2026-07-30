@@ -14,3 +14,9 @@ DerivedData/
 
 # Machine-specific runtime config (absolute paths)
 /vocal.config
+
+# Legacy experiments kept on disk for safety (not part of the build)
+/vocal-engine/
+/main.swift
+/ai_worker.py
+/ai_worker_old.py
