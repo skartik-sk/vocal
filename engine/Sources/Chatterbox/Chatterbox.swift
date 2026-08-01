@@ -22,12 +22,14 @@ public final class ChatterboxTurbo: Module {
     public let config: ChatterboxConfig
     public let conds: Conds
     @ModuleInfo(key: "t3") var t3: T3
+    @ModuleInfo(key: "s3gen") var s3gen: S3Gen
     public var tokenizer: Tokenizer?
 
     init(config: ChatterboxConfig, conds: Conds) {
         self.config = config
         self.conds = conds
         self._t3.wrappedValue = T3(gpt2: config.gpt2, hp: config.t3)
+        self._s3gen.wrappedValue = S3Gen(meanflow: config.s3gen.meanflow)
         super.init()
     }
 
@@ -35,9 +37,19 @@ public final class ChatterboxTurbo: Module {
     public static func fromPretrained(_ modelPath: String) async throws -> ChatterboxTurbo {
         let files = ModelFiles(modelPath)
         let config = try ChatterboxConfig.load(at: files.configURL)
-        let weights = try ChatterboxLoader.loadWeights(files)
+        var weights = try ChatterboxLoader.loadWeights(files)
         let conds = try ChatterboxLoader.loadConds(files)
         let quantPaths = ChatterboxLoader.quantizedPaths(weights)
+        // pos_bias_u/v ship as raw params (no `.weight` suffix); rename so the Embeddings that
+        // hold them match. (pos_enc.pe is computed locally, so it stays an ignored extra key.)
+        weights = Dictionary(uniqueKeysWithValues: weights.map { (k, v) -> (String, MLXArray) in
+            if k.hasSuffix(".pos_bias_u") || k.hasSuffix(".pos_bias_v") { return (k + ".weight", v) }
+            // FeedForward.net ships as integer-indexed (net.0/net.1); remap to map keys so the
+            // heterogeneous structure loads (see FFNetSeq).
+            if k.contains(".ff.net.0.") { return (k.replacingOccurrences(of: ".ff.net.0.", with: ".ff.net.gelu."), v) }
+            if k.contains(".ff.net.1.") { return (k.replacingOccurrences(of: ".ff.net.1.", with: ".ff.net.out."), v) }
+            return (k, v)
+        })
 
         let model = ChatterboxTurbo(config: config, conds: conds)
         // Quantize linears (all) + only the embeddings that ship quantized on disk.
@@ -79,10 +91,18 @@ public final class ChatterboxTurbo: Module {
         let valid = Array(flat.filter { $0 < Int32(6561) }
                           + [Int32(4299), Int32(4299), Int32(4299)])
         print("[Chatterbox] T3 → \(valid.count) speech tokens (first 20: \(valid.prefix(20)))")
+
+        // S3: speech tokens → mel (mean-flow CFM), conditioned on the baked default voice.
+        let ref = S3Ref(promptToken: conds.genPromptToken, promptTokenLen: conds.genPromptTokenLen,
+                        promptFeat: conds.genPromptFeat, embedding: conds.genEmbedding)
+        let mel = s3gen(MLXArray(valid).reshaped([1, -1]), ref: ref)
+        eval(mel)
+        let melv = mel.asArray(Float.self)
+        let lo = melv.min() ?? 0, hi = melv.max() ?? 0
+        print("[Chatterbox] S3 mel shape \(mel.shape) range[\(String(format: "%.2f", lo)), \(String(format: "%.2f", hi))] frames=\(mel.dim(2))")
         GPU.clearCache()
 
-        // M3+ wire S3 (tokens→mel) + HiFTNet (mel→wav) here. Until then, a short tone keeps the
-        // worker audible and proves the full T3 forward pass ran.
+        // M4 wires the HiFTNet vocoder (mel → wav). Until then, a short tone.
         return ChatterboxTurbo.stubTone()
     }
 
