@@ -91,8 +91,8 @@ mean-flow `ConditionalDecoder`, HiFTNet vocoder, Chatterbox config structs.
 - **M0** — Branch + `Package.swift` + `ChatterboxWorker` skeleton (stdin loop + `AudioPlayer`,
   stub `generate` returns a tone) wired into `config.rs`/MCP/right-click. *Proves native plumbing.*
 - **M1** — Weight + config + conds loading (build module tree, quantize, `update`; load conds).
-  *Verify: loads clean, param counts sane; resolve the 4-bit-Conv1d question (quantized conv vs.
-  dequantize-on-load).*
+  *Verify: loads clean, param counts sane. ✅ DONE — confirmed convs are float16 (unquantized);
+  only linears/embeddings are 4-bit, handled by MLXNN's standard `quantize()`.*
 - **M2** — T3 (GPT-2) + tokenizer. *Verify: speech tokens match Python (greedy).*
 - **M3** — S3 encoder + mean-flow CFM decoder. *Verify: mel matches Python.*
 - **M4** — HiFTNet vocoder. *Verify: wav matches Python + audible.*
@@ -103,8 +103,10 @@ mean-flow `ConditionalDecoder`, HiFTNet vocoder, Chatterbox config structs.
 
 - **HiFTNet vocoder** (F0 + neural source + iSTFT + Snake) — most architecturally unusual,
   highest transcription-error risk. Mitigation: verify mel→wav with a fixed mel input first.
-- **4-bit Conv1d** — conv weights ship quantized. Confirm mlx-swift supports quantized convs;
-  fallback is dequantize-on-load (small RAM cost, correctness-safe). Resolved at M1.
+- **4-bit Conv1d** — ~~conv weights ship quantized~~ **RESOLVED at M1 (non-issue):** verified from the
+  checkpoint that convs are stored as plain **float16** with no scales. Only linears + embeddings
+  are 4-bit (U32 weight + 2-D F16 scales/biases), consumed natively by MLXNN's `quantize()`. No
+  dequantization is needed at all — better for RAM than assumed.
 - **GPT-2 combined-QKV + learned pos-emb** — standard, low risk.
 
 ## Honest payoff

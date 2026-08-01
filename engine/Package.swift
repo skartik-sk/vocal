@@ -108,5 +108,14 @@ let package = Package(
             ],
             path: "Tests/Qwen3TTSTests"
         ),
+
+        .testTarget(
+            name: "ChatterboxTests",
+            dependencies: [
+                "Chatterbox",
+                .product(name: "MLX", package: "mlx-swift"),
+            ],
+            path: "Tests/ChatterboxTests"
+        ),
     ]
 )
