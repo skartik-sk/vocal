@@ -21,10 +21,18 @@ public struct ModelFiles {
 
     public var configURL: URL { dir.appendingPathComponent("config.json") }
     public var weightsURL: URL { dir.appendingPathComponent("model.safetensors") }
-    /// Pre-dequantized float32 weights (one-time Python asset, like tokenizer.json). The 4-bit
-    /// `model.safetensors` uses a non-standard packing mlx-audio dequantizes at load; we use the
-    /// already-float dump so the native port needs no dequant at runtime.
-    public var fpWeightsURL: URL { dir.appendingPathComponent("model.fp.safetensors") }
+    /// Pre-dequantized float32 weights (one-time Python asset). The 4-bit `model.safetensors` uses
+    /// a non-standard packing mlx-audio dequantizes at load; we use the already-float dump so the
+    /// native port needs no dequant at runtime. Kept OUT of the HF cache dir (it confuses mlx-audio's
+    /// loader) — set CHATTERBOX_FP_WEIGHTS, else we look next to the model and in .native-weights/.
+    public var fpWeightsURL: URL {
+        if let p = ProcessInfo.processInfo.environment["CHATTERBOX_FP_WEIGHTS"] {
+            return URL(fileURLWithPath: p)
+        }
+        let inDir = dir.appendingPathComponent("model.fp.safetensors")
+        if FileManager.default.fileExists(atPath: inDir.path) { return inDir }
+        return URL(fileURLWithPath: ".native-weights/model.fp.safetensors")
+    }
     public var condsURL: URL { dir.appendingPathComponent("conds.safetensors") }
 }
 

@@ -24,3 +24,4 @@ venv/
 /main.swift
 /ai_worker.py
 /ai_worker_old.py
+/.native-weights/
