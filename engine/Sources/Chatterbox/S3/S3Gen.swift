@@ -86,6 +86,7 @@ final class S3Gen: Module {
         let totalT = token.dim(1)
         let ones = MLXArray.ones([B, totalT, 1])
         let tokenEmb = inputEmbedding(token) * ones                 // (B, 250+T, 512)
+        ChatterboxDump(tokenEmb, "swift_tokenemb")
 
         let lens = MLXArray([Int32(totalT)])
         let (h, _) = encoder(tokenEmb, xsLens: lens)                // (B, 2*(250+T), 512)
@@ -93,6 +94,15 @@ final class S3Gen: Module {
         let melLen1 = ref.promptFeat.dim(1)                          // 500
         let melLen2 = h.dim(1) - melLen1
         var mu = encoderProj(h)                                      // (B, 2*(250+T), 80)
+
+        // Debug: dump the deterministic encoder output `mu` to diff vs Python.
+        if let d = ProcessInfo.processInfo.environment["CHATTERBOX_DUMP"] {
+            let m = mu[0].asArray(Float.self)
+            try? m.withUnsafeBufferPointer { Data(buffer: $0) }
+                .write(to: URL(fileURLWithPath: d + "/swift_mu.bin"))
+            try? Data("\(mu[0].dim(0)) \(mu[0].dim(1))".utf8)
+                .write(to: URL(fileURLWithPath: d + "/swift_mu.shape"))
+        }
 
         // Conditioning: [prompt_feat, zeros] -> (B, 80, T)
         let zeros = MLXArray.zeros([B, melLen2, 80])

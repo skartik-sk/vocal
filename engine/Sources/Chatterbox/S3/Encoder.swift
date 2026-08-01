@@ -28,7 +28,8 @@ final class EspnetRelPositionalEncoding: Module {
     static func buildPE(dModel: Int, size: Int) -> MLXArray {
         let half = dModel / 2
         let position = MLXArray((0 ..< size).map { Float($0) }).expandedDimensions(axis: -1)  // [size,1]
-        let divTerm = exp(MLXArray((0 ..< half).map { Float($0) }) * Float(-log(10000.0) / Double(dModel)))
+        // Python uses arange(0, d_model, 2) → [0,2,4,…] (step 2), NOT [0,1,2,…].
+        let divTerm = exp(MLXArray((0 ..< half).map { Float($0 * 2) }) * Float(-log(10000.0) / Double(dModel)))
         let arg = position * divTerm                                   // [size, half]
         let pos = concatenated([sin(arg).expandedDimensions(axis: -1), cos(arg).expandedDimensions(axis: -1)], axis: -1)
             .reshaped([size, dModel])
@@ -47,8 +48,14 @@ final class EspnetRelPositionalEncoding: Module {
         let T = x.dim(1)
         let center = pe.dim(1) / 2
         let posEmb = pe[0..., (center - T + 1)..<(center + T), 0...]
+        if let d = ProcessInfo.processInfo.environment["CHATTERBOX_DUMP"], !Self.peDumped {
+            Self.peDumped = true
+            let pf = pe.asArray(Float.self)   // full [1, 2*max-1, d_model]
+            try? pf.withUnsafeBufferPointer { Data(buffer: $0) }.write(to: URL(fileURLWithPath: d + "/swift_pe.bin"))
+        }
         return (x * xscale, posEmb)
     }
+    private static var peDumped = false
 }
 
 final class LinearInput: Module {
@@ -62,10 +69,12 @@ final class LinearInput: Module {
         super.init()
     }
     func callAsFunction(_ x: MLXArray, mask: MLXArray) -> (MLXArray, MLXArray, MLXArray) {
-        var h = norm(linear(x))
-        let (scaled, posEmb) = posEnc(h)
-        h = scaled
-        return (h, posEmb, mask)
+        let linOut = linear(x)
+        ChatterboxDump(linOut, "swift_linout")
+        let n = norm(linOut)
+        ChatterboxDump(n, "swift_normout")
+        let (scaled, posEmb) = posEnc(n)
+        return (scaled, posEmb, mask)
     }
 }
 
@@ -235,7 +244,9 @@ final class UpsampleConformerEncoder: Module {
         mask = mask.expandedDimensions(axis: 1)                                   // (B, 1, T)
 
         var (h, posEmb, _) = embed(xs, mask: mask)
+        ChatterboxDump(h, "swift_h0_embed")
         h = preLookahead(h)
+        ChatterboxDump(h, "swift_h1_prelook")
         var mask1d = mask[0..., 0..<1, 0...].squeezed(axis: 1)                   // (B, T)
         for layer in encoders { h = layer(h, mask: mask1d, posEmb: posEmb) }
 
@@ -247,6 +258,16 @@ final class UpsampleConformerEncoder: Module {
         mask1d = mask[0..., 0..<1, 0...].squeezed(axis: 1)
         for layer in upEncoders { hUp = layer(hUp, mask: mask1d, posEmb: posEmb2) }
         hUp = afterNorm(hUp)
+        ChatterboxDump(hUp, "swift_hf_enc")
         return (hUp, mask)
     }
+}
+
+/// Debug dump helper (writes a flattened MLXArray + shape sidecar when CHATTERBOX_DUMP is set).
+func ChatterboxDump(_ a: MLXArray, _ name: String) {
+    guard let d = ProcessInfo.processInfo.environment["CHATTERBOX_DUMP"] else { return }
+    let f = a.asArray(Float.self)
+    try? f.withUnsafeBufferPointer { Data(buffer: $0) }.write(to: URL(fileURLWithPath: d + "/" + name + ".bin"))
+    try? Data(a.shape.map { String($0) }.joined(separator: " ").utf8)
+        .write(to: URL(fileURLWithPath: d + "/" + name + ".shape"))
 }

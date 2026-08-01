@@ -37,37 +37,31 @@ public final class ChatterboxTurbo: Module {
     public static func fromPretrained(_ modelPath: String) async throws -> ChatterboxTurbo {
         let files = ModelFiles(modelPath)
         let config = try ChatterboxConfig.load(at: files.configURL)
-        var weights = try ChatterboxLoader.loadWeights(files)
+        // Load the pre-dequantized float32 weights (one-time Python asset). The 4-bit
+        // model.safetensors uses a packing mlx-audio dequantizes at load in a way mx.dequantize
+        // can't reproduce from the raw tensors, so we consume the already-float dump.
+        var weights = try MLX.loadArrays(url: files.fpWeightsURL)
         let conds = try ChatterboxLoader.loadConds(files)
-        // pos_bias_u/v ship as raw params (no `.weight` suffix); rename so the Embeddings that
-        // hold them match. (pos_enc.pe is computed locally, so it stays an ignored extra key.)
+        // Structural renames so the flat weight keys match the Swift module tree:
         weights = Dictionary(uniqueKeysWithValues: weights.map { (k, v) -> (String, MLXArray) in
+            // pos_bias_u/v: raw params -> held as Embedding.weight
             if k.hasSuffix(".pos_bias_u") || k.hasSuffix(".pos_bias_v") { return (k + ".weight", v) }
-            // Snake.alpha ships as a raw [channels] param; hold as Embedding(channels,1).weight.
+            // Snake.alpha: raw [channels] param -> Embedding(channels,1).weight
             if k.hasSuffix(".alpha") { return (k + ".weight", v.reshaped([v.dim(0), 1])) }
-            // FeedForward.net ships as integer-indexed (net.0/net.1); remap to map keys so the
-            // heterogeneous structure loads (see FFNetSeq).
+            // FeedForward.net.[0|1]: integer-indexed -> map keys (see FFNetSeq)
             if k.contains(".ff.net.0.") { return (k.replacingOccurrences(of: ".ff.net.0.", with: ".ff.net.gelu."), v) }
             if k.contains(".ff.net.1.") { return (k.replacingOccurrences(of: ".ff.net.1.", with: ".ff.net.out."), v) }
             return (k, v)
         })
-        // Build the quantized-path set AFTER the rename so module paths match (e.g. ff.net.gelu).
-        let quantPaths = ChatterboxLoader.quantizedPaths(weights)
 
         let model = ChatterboxTurbo(config: config, conds: conds)
-        // Quantize only the linears/embeddings that ship quantized on disk. m_source.l_linear
-        // (Linear 9→1) ships float (9 not divisible by group 64) and must stay float.
-        if let q = config.quantization {
-            quantize(model: model, groupSize: q.groupSize, bits: q.bits) { path, module in
-                if module is Linear { return quantPaths.contains(path) }
-                if module is Embedding { return quantPaths.contains(path) }
-                return false
-            }
-        }
-        // Pour weights in by dotted path; t3.* matches the `t3` submodule, s3gen.*/ve.* are
-        // ignored (not built yet). verify:[] = don't fail on extra/missing keys.
+        // Float model — no quantize()/dequant. verify:[] ignores extras (ve.*, pos_enc.pe, …).
         try model.update(parameters: ModuleParameters.unflattened(weights), verify: [])
         eval(model)
+        if ProcessInfo.processInfo.environment["CHATTERBOX_DUMP"] != nil {
+            ChatterboxDump(model.t3.speechHead.weight, "swift_speech_head_w")
+            ChatterboxDump(model.t3.tfmr.wte.weight, "swift_wte")
+        }
 
         model.tokenizer = try? await AutoTokenizer.from(modelFolder: files.dir)
         print("[Chatterbox] ✅ loaded (t3 \(config.gpt2.nLayer)L/\(config.gpt2.nEmbd)d, "
@@ -112,6 +106,23 @@ public final class ChatterboxTurbo: Module {
         wav = ChatterboxTurbo.applyTrimFade(wav)
         print("[Chatterbox] vocoder → \(wav.count) samples "
               + "(\(String(format: "%.2f", Double(wav.count) / Double(ChatterboxTurbo.sampleRate))) s)")
+
+        // Optional debug dump (CHATTERBOX_DUMP=/path) — tokens + mel + wav, to diff vs Python.
+        if let d = ProcessInfo.processInfo.environment["CHATTERBOX_DUMP"] {
+            let dir = URL(fileURLWithPath: d)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let toks = valid.map { Int($0) }
+            try? JSONSerialization.data(withJSONObject: toks, options: [])
+                .write(to: dir.appendingPathComponent("tokens.json"))
+            let melFlat = mel[0].asArray(Float.self)
+            try? melFlat.withUnsafeBufferPointer { Data(buffer: $0) }
+                .write(to: dir.appendingPathComponent("swift_mel.bin"))
+            try? Data("\(mel[0].dim(0)) \(mel[0].dim(1))".utf8)
+                .write(to: dir.appendingPathComponent("swift_mel.shape"))
+            try? wav.withUnsafeBufferPointer { Data(buffer: $0) }
+                .write(to: dir.appendingPathComponent("swift_wav.bin"))
+            print("[Chatterbox] dumped tokens/mel/wav → \(d)")
+        }
         GPU.clearCache()
         return wav
     }

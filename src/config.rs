@@ -1,11 +1,16 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// The baked project root. Used by [`VocalConfig::default`] so both the Services
+/// host and the Tauri manager resolve an absolute `vocal.config` path regardless
+/// of the process cwd (macOS Services launches with an unpredictable cwd).
+pub const VOCAL_ROOT: &str = "/Users/singupallikartik/Developer/fun-projects/vocal";
+
 /// Runtime configuration for Vocal. Loaded from a gitignored `vocal.config`
 /// (`key = value` lines); falls back to baked-in defaults. Rust is the single
 /// source of truth — it builds the worker launch spec (see `worker.rs`) and
 /// passes settings to the worker via env vars.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct VocalConfig {
     /// `"swift"` (Qwen3-TTS via the Swift engine), `"chatterbox"` (Python mlx-audio),
     /// or `"native_chatterbox"` (pure-Swift Chatterbox, no Python).
@@ -32,7 +37,7 @@ pub struct VocalConfig {
 
 impl Default for VocalConfig {
     fn default() -> Self {
-        let home = "/Users/singupallikartik/Developer/fun-projects/vocal";
+        let home = VOCAL_ROOT;
         Self {
             backend: "chatterbox".into(),
             model_path: "/Users/singupallikartik/Developer/fun-projects/Qwen3-TTS-12Hz-0.6B-CustomVoice-4bit".into(),
@@ -92,6 +97,31 @@ impl VocalConfig {
     /// Path to the compiled native Chatterbox worker: `<engine_dir>/.build/release/ChatterboxWorker`.
     pub fn chatterbox_binary(&self) -> PathBuf {
         PathBuf::from(&self.engine_dir).join(".build/release/ChatterboxWorker")
+    }
+
+    /// Serialize this config back to `key = value` lines — the mirror of
+    /// [`parse_kv`]. Lets the Tauri manager persist edits made in its UI.
+    pub fn serialize(&self) -> String {
+        let mut out = String::new();
+        let mut kv = |k: &str, v: &str| {
+            out.push_str(k);
+            out.push_str(" = ");
+            out.push_str(v);
+            out.push('\n');
+        };
+        kv("backend", &self.backend);
+        kv("model_path", &self.model_path);
+        kv("engine_dir", &self.engine_dir);
+        kv("speaker", &self.speaker);
+        kv("language", &self.language);
+        kv("instruct", self.instruct.as_deref().unwrap_or(""));
+        kv("temperature", &self.temperature);
+        kv("python_bin", &self.python_bin);
+        kv("chatterbox_worker", &self.chatterbox_worker);
+        kv("chatterbox_model", &self.chatterbox_model);
+        kv("ref_audio", self.ref_audio.as_deref().unwrap_or(""));
+        kv("chatterbox_model_path", &self.chatterbox_model_path);
+        out
     }
 }
 
@@ -156,5 +186,26 @@ mod tests {
             PathBuf::from("/tmp/engine/.build/release/ChatterboxWorker")
         );
         assert_eq!(cfg.engine_cwd(), PathBuf::from("/tmp/engine"));
+    }
+
+    #[test]
+    fn serialize_round_trips_through_load() {
+        let mut cfg = VocalConfig::default();
+        cfg.speaker = "Aiden".into();
+        cfg.temperature = "0.7".into();
+        cfg.instruct = None; // must serialize as empty line → reload as None
+        cfg.ref_audio = Some("/tmp/voice.wav".into());
+
+        let p = std::env::temp_dir().join("vocal_config_roundtrip.cfg");
+        std::fs::write(&p, cfg.serialize()).unwrap();
+        let loaded = VocalConfig::load(&p);
+        let _ = std::fs::remove_file(&p);
+
+        assert_eq!(loaded.backend, cfg.backend);
+        assert_eq!(loaded.speaker, "Aiden");
+        assert_eq!(loaded.temperature, "0.7");
+        assert_eq!(loaded.instruct, None);
+        assert_eq!(loaded.ref_audio.as_deref(), Some("/tmp/voice.wav"));
+        assert_eq!(loaded.chatterbox_model_path, cfg.chatterbox_model_path);
     }
 }

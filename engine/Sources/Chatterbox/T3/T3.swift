@@ -60,9 +60,12 @@ final class T3: Module {
     /// Build the full input embeds: [cond | text | speech_start].
     private func prepareInputEmbeds(cond: T3Cond, textTokens: MLXArray, speechStart: MLXArray) -> MLXArray {
         let condEmb = condEnc(cond, speechEmb: { self.speechEmb($0) })
+        ChatterboxDump(condEmb, "swift_condemb")
         let textE = textEmb(textTokens)
         let speechE = speechEmb(speechStart)
-        return concatenated([condEmb, textE, speechE], axis: 1)
+        let emb = concatenated([condEmb, textE, speechE], axis: 1)
+        ChatterboxDump(emb, "swift_embeds")
+        return emb
     }
 
     /// Autoregressive text → speech-token generation (the turbo path).
@@ -86,8 +89,10 @@ final class T3: Module {
             inputsEmbeds: prepareInputEmbeds(cond: cond, textTokens: textTokens, speechStart: speechStart),
             cache: cache)
         let lastIdx = hidden.dim(1) - 1
+        let logits0 = speechHead(hidden[0..., lastIdx, 0...])    // [B, vocab]
+        ChatterboxDump(logits0, "swift_t3_logits0")
         var nextToken = sample(
-            speechHead(hidden[0..., lastIdx, 0...]),       // [B, vocab]
+            logits0,
             temperature: temperature, topK: topK, topP: topP,
             generated: nil, repetitionPenalty: repetitionPenalty, greedy: greedy)
 

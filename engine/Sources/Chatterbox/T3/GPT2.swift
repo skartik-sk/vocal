@@ -116,6 +116,7 @@ final class GPT2Model: Module {
         hidden = hidden + wpe(positionIds)
         for i in 0..<h.count {
             hidden = h[i](hidden, cache: cache[i])
+            if i == 0 { ChatterboxDump(hidden, "swift_gpt2_block0") }
         }
         return lnF(hidden)
     }

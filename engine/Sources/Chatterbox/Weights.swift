@@ -21,6 +21,10 @@ public struct ModelFiles {
 
     public var configURL: URL { dir.appendingPathComponent("config.json") }
     public var weightsURL: URL { dir.appendingPathComponent("model.safetensors") }
+    /// Pre-dequantized float32 weights (one-time Python asset, like tokenizer.json). The 4-bit
+    /// `model.safetensors` uses a non-standard packing mlx-audio dequantizes at load; we use the
+    /// already-float dump so the native port needs no dequant at runtime.
+    public var fpWeightsURL: URL { dir.appendingPathComponent("model.fp.safetensors") }
     public var condsURL: URL { dir.appendingPathComponent("conds.safetensors") }
 }
 

@@ -8,4 +8,4 @@
 pub mod config;
 pub mod worker;
 
-pub use config::VocalConfig;
+pub use config::{VocalConfig, VOCAL_ROOT};
