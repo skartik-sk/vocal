@@ -1,6 +1,6 @@
 # Vocal runtime config (copy to vocal.config and edit). vocal.config is gitignored.
 # macOS launches the Services app with an unpredictable cwd, so use ABSOLUTE paths.
-# backend: "swift" (Qwen3-TTS via the Swift engine) or "chatterbox" (Python mlx-audio).
+# backend: "swift" (Qwen3-TTS) | "chatterbox" (Python mlx-audio) | "native_chatterbox" (pure Swift).
 
 backend = swift
 
@@ -17,3 +17,7 @@ python_bin = /Users/singupallikartik/Developer/fun-projects/vocal/src/.venv/bin/
 chatterbox_worker = /Users/singupallikartik/Developer/fun-projects/vocal/scripts/chatterbox_worker.py
 chatterbox_model = mlx-community/chatterbox-turbo-4bit
 # ref_audio = /absolute/path/to/voice.wav   # optional voice cloning
+
+# --- native_chatterbox backend (pure Swift, no Python; set backend = native_chatterbox) ---
+# Local dir holding config.json + model.safetensors + conds.safetensors (the HF cache snapshot).
+chatterbox_model_path = /Users/<you>/.cache/huggingface/hub/models--mlx-community--chatterbox-turbo-4bit/snapshots/<hash>

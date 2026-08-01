@@ -18,11 +18,21 @@ let package = Package(
             name: "Qwen3TTSDemo",
             targets: ["Qwen3TTSDemo"]
         ),
-        // Vocal's background worker: loads the model once, speaks sentences
+        // Vocal's Qwen3 background worker: loads the model once, speaks sentences
         // streamed from the Rust host over stdin (one sentence per line).
         .executable(
             name: "VocalWorker",
             targets: ["VocalWorker"]
+        ),
+        // Native Chatterbox (pure Swift/MLX, no Python) — port of Chatterbox-Turbo.
+        .library(
+            name: "Chatterbox",
+            targets: ["Chatterbox"]
+        ),
+        // Vocal's NATIVE Chatterbox worker (same stdin protocol as VocalWorker).
+        .executable(
+            name: "ChatterboxWorker",
+            targets: ["ChatterboxWorker"]
         ),
     ],
     dependencies: [
@@ -65,6 +75,28 @@ let package = Package(
                 .product(name: "MLX", package: "mlx-swift"),
             ],
             path: "Sources/VocalWorker"
+        ),
+
+        // MARK: - Chatterbox (native Swift/MLX port, default voice)
+        .target(
+            name: "Chatterbox",
+            dependencies: [
+                .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXNN", package: "mlx-swift"),
+                .product(name: "MLXFast", package: "mlx-swift"),
+                .product(name: "MLXLMCommon", package: "mlx-swift-examples"),
+                .product(name: "Transformers", package: "swift-transformers"),
+            ],
+            path: "Sources/Chatterbox"
+        ),
+
+        // MARK: - Chatterbox Worker (native stdin sentence server, no Python)
+        .executableTarget(
+            name: "ChatterboxWorker",
+            dependencies: [
+                "Chatterbox",
+            ],
+            path: "Sources/ChatterboxWorker"
         ),
 
         // MARK: - Tests

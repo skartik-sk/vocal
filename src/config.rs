@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 /// passes settings to the worker via env vars.
 #[derive(Debug, Clone)]
 pub struct VocalConfig {
-    /// `"swift"` (Qwen3-TTS via the Swift engine) or `"chatterbox"` (via Python mlx-audio).
+    /// `"swift"` (Qwen3-TTS via the Swift engine), `"chatterbox"` (Python mlx-audio),
+    /// or `"native_chatterbox"` (pure-Swift Chatterbox, no Python).
     pub backend: String,
 
     // --- swift / Qwen3-TTS backend ---
@@ -23,6 +24,10 @@ pub struct VocalConfig {
     pub chatterbox_worker: String,
     pub chatterbox_model: String,
     pub ref_audio: Option<String>,
+
+    // --- native_chatterbox backend (pure Swift, no Python) ---
+    /// Local model dir holding config.json + model.safetensors + conds.safetensors.
+    pub chatterbox_model_path: String,
 }
 
 impl Default for VocalConfig {
@@ -42,6 +47,7 @@ impl Default for VocalConfig {
             chatterbox_worker: format!("{home}/scripts/chatterbox_worker.py"),
             chatterbox_model: "mlx-community/chatterbox-turbo-4bit".into(),
             ref_audio: None,
+            chatterbox_model_path: "/Users/singupallikartik/.cache/huggingface/hub/models--mlx-community--chatterbox-turbo-4bit/snapshots/c63817725071d7b5269c7b558772d6e8cbf59cec".into(),
         }
     }
 }
@@ -65,6 +71,7 @@ impl VocalConfig {
                     "chatterbox_worker" => cfg.chatterbox_worker = value,
                     "chatterbox_model" => cfg.chatterbox_model = value,
                     "ref_audio" => cfg.ref_audio = if value.is_empty() { None } else { Some(value) },
+                    "chatterbox_model_path" => cfg.chatterbox_model_path = value,
                     _ => {} // ignore unknown keys (forward-compatible)
                 }
             }
@@ -80,6 +87,11 @@ impl VocalConfig {
     /// Working directory for the Swift worker (so `default.metallib` is found via cwd).
     pub fn engine_cwd(&self) -> PathBuf {
         PathBuf::from(&self.engine_dir)
+    }
+
+    /// Path to the compiled native Chatterbox worker: `<engine_dir>/.build/release/ChatterboxWorker`.
+    pub fn chatterbox_binary(&self) -> PathBuf {
+        PathBuf::from(&self.engine_dir).join(".build/release/ChatterboxWorker")
     }
 }
 
@@ -120,12 +132,12 @@ mod tests {
         {
             let mut f = std::fs::File::create(&p).unwrap();
             writeln!(f, "speaker = Aiden").unwrap();
-            writeln!(f, "backend = chatterbox").unwrap();
+            writeln!(f, "backend = native_chatterbox").unwrap();
             writeln!(f, "instruct =").unwrap();
         }
         let cfg = VocalConfig::load(&p);
         assert_eq!(cfg.speaker, "Aiden");
-        assert_eq!(cfg.backend, "chatterbox");
+        assert_eq!(cfg.backend, "native_chatterbox");
         assert_eq!(cfg.instruct, None);
         assert_eq!(cfg.temperature, "0.8");
         let _ = std::fs::remove_file(&p);
@@ -138,6 +150,10 @@ mod tests {
         assert_eq!(
             cfg.engine_binary(),
             PathBuf::from("/tmp/engine/.build/release/VocalWorker")
+        );
+        assert_eq!(
+            cfg.chatterbox_binary(),
+            PathBuf::from("/tmp/engine/.build/release/ChatterboxWorker")
         );
         assert_eq!(cfg.engine_cwd(), PathBuf::from("/tmp/engine"));
     }

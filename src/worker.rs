@@ -2,7 +2,8 @@
 //!
 //! Both the macOS Services host (`src/main.rs`, sync) and the MCP server
 //! (`src/bin/vocal_mcp.rs`, async/tokio) build their `Command` from this, so the
-//! backend choice (Swift Qwen3 vs Python Chatterbox) lives in exactly one place.
+//! backend choice (Swift Qwen3 / Python Chatterbox / native Swift Chatterbox) lives
+//! in exactly one place.
 
 use crate::config::VocalConfig;
 use std::path::PathBuf;
@@ -19,6 +20,18 @@ pub struct WorkerLaunch {
 /// Build the launch spec from the active backend in `cfg`.
 pub fn launch_spec(cfg: &VocalConfig) -> WorkerLaunch {
     match cfg.backend.as_str() {
+        "native_chatterbox" => {
+            // Pure-Swift Chatterbox worker (no Python). Loads the 4-bit model natively.
+            WorkerLaunch {
+                program: cfg.chatterbox_binary().to_string_lossy().into_owned(),
+                args: vec![],
+                envs: vec![(
+                    "CHATTERBOX_MODEL_PATH".into(),
+                    cfg.chatterbox_model_path.clone(),
+                )],
+                cwd: Some(cfg.engine_cwd()),
+            }
+        }
         "chatterbox" => {
             let mut envs = vec![("CHATTERBOX_MODEL".into(), cfg.chatterbox_model.clone())];
             if let Some(ref r) = cfg.ref_audio {
