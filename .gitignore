@@ -25,3 +25,7 @@ venv/
 /ai_worker.py
 /ai_worker_old.py
 /.native-weights/
+/src-tauri/target/
+/src-tauri/gen/
+/.mcp.json
+/.commandcode/
