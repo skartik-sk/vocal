@@ -39,24 +39,29 @@ public final class ChatterboxTurbo: Module {
         let config = try ChatterboxConfig.load(at: files.configURL)
         var weights = try ChatterboxLoader.loadWeights(files)
         let conds = try ChatterboxLoader.loadConds(files)
-        let quantPaths = ChatterboxLoader.quantizedPaths(weights)
         // pos_bias_u/v ship as raw params (no `.weight` suffix); rename so the Embeddings that
         // hold them match. (pos_enc.pe is computed locally, so it stays an ignored extra key.)
         weights = Dictionary(uniqueKeysWithValues: weights.map { (k, v) -> (String, MLXArray) in
             if k.hasSuffix(".pos_bias_u") || k.hasSuffix(".pos_bias_v") { return (k + ".weight", v) }
+            // Snake.alpha ships as a raw [channels] param; hold as Embedding(channels,1).weight.
+            if k.hasSuffix(".alpha") { return (k + ".weight", v.reshaped([v.dim(0), 1])) }
             // FeedForward.net ships as integer-indexed (net.0/net.1); remap to map keys so the
             // heterogeneous structure loads (see FFNetSeq).
             if k.contains(".ff.net.0.") { return (k.replacingOccurrences(of: ".ff.net.0.", with: ".ff.net.gelu."), v) }
             if k.contains(".ff.net.1.") { return (k.replacingOccurrences(of: ".ff.net.1.", with: ".ff.net.out."), v) }
             return (k, v)
         })
+        // Build the quantized-path set AFTER the rename so module paths match (e.g. ff.net.gelu).
+        let quantPaths = ChatterboxLoader.quantizedPaths(weights)
 
         let model = ChatterboxTurbo(config: config, conds: conds)
-        // Quantize linears (all) + only the embeddings that ship quantized on disk.
+        // Quantize only the linears/embeddings that ship quantized on disk. m_source.l_linear
+        // (Linear 9→1) ships float (9 not divisible by group 64) and must stay float.
         if let q = config.quantization {
             quantize(model: model, groupSize: q.groupSize, bits: q.bits) { path, module in
+                if module is Linear { return quantPaths.contains(path) }
                 if module is Embedding { return quantPaths.contains(path) }
-                return true
+                return false
             }
         }
         // Pour weights in by dotted path; t3.* matches the `t3` submodule, s3gen.*/ve.* are
@@ -102,11 +107,29 @@ public final class ChatterboxTurbo: Module {
         print("[Chatterbox] S3 mel shape \(mel.shape) range[\(String(format: "%.2f", lo)), \(String(format: "%.2f", hi))] frames=\(mel.dim(2))")
         GPU.clearCache()
 
-        // M4 wires the HiFTNet vocoder (mel → wav). Until then, a short tone.
-        return ChatterboxTurbo.stubTone()
+        // HiFTNet vocoder: mel → 24 kHz mono wav.
+        var wav = s3gen.mel2wav.generate(mel)
+        wav = ChatterboxTurbo.applyTrimFade(wav)
+        print("[Chatterbox] vocoder → \(wav.count) samples "
+              + "(\(String(format: "%.2f", Double(wav.count) / Double(ChatterboxTurbo.sampleRate))) s)")
+        GPU.clearCache()
+        return wav
     }
 
-    /// A short 440 Hz tone, used until the vocoder is wired (M4).
+    /// Fade-in the first 20 ms to suppress the startup artifact (matches Python `trim_fade`).
+    static func applyTrimFade(_ wav: [Float]) -> [Float] {
+        let nTrim = sampleRate / 50          // 480 samples = 20 ms
+        guard wav.count >= 2 * nTrim else { return wav }
+        var out = wav
+        for i in 0..<nTrim {
+            out[i] = 0
+            let fade = (cos(.pi * Double(i) / Double(nTrim - 1)) + 1) / 2   // 0 → 1
+            out[nTrim + i] = wav[nTrim + i] * Float(fade)
+        }
+        return out
+    }
+
+    /// A short 440 Hz tone (kept for fallback / debugging).
     public static func stubTone() -> [Float] {
         let sr = sampleRate
         let n = Int(0.4 * Double(sr))
