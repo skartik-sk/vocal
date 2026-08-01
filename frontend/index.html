@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vocal Manager</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>Vocal Manager</h1>
+    <span id="config-path" class="config-path"></span>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="manage">Manage</button>
+    <button class="tab" data-tab="test">Test</button>
+    <button class="tab" data-tab="logs">Logs</button>
+    <button class="tab" data-tab="mcp">MCP</button>
+    <button class="tab" data-tab="settings">Settings</button>
+  </nav>
+
+  <main>
+    <!-- MANAGE -->
+    <section id="tab-manage" class="tab-panel active">
+      <h2 class="section-title">Backends</h2>
+      <div id="backend-cards" class="cards"></div>
+
+      <h2 class="section-title">Qwen3 models on disk</h2>
+      <p class="section-sub">Discovered local checkpoints. Pick one to switch the Qwen (Swift) backend.</p>
+      <div id="qwen-models" class="cards"></div>
+    </section>
+
+    <!-- TEST -->
+    <section id="tab-test" class="tab-panel">
+      <div class="test-box">
+        <label for="test-text">Text to speak</label>
+        <textarea id="test-text" rows="6" placeholder="Type something to test the loaded model..."></textarea>
+        <div class="test-controls">
+          <div class="field">
+            <label for="test-speaker">Speaker</label>
+            <input id="test-speaker" type="text" placeholder="Dylan" />
+          </div>
+          <div class="field">
+            <label for="test-language">Language</label>
+            <input id="test-language" type="text" placeholder="English" />
+          </div>
+          <div class="field">
+            <label for="test-instruct">Instruct</label>
+            <input id="test-instruct" type="text" placeholder="Style / emotion instruction" />
+          </div>
+          <div class="field">
+            <label for="test-temperature">Temperature</label>
+            <input id="test-temperature" type="text" placeholder="0.8" />
+          </div>
+        </div>
+        <div class="test-actions">
+          <button id="btn-speak" class="primary">Speak</button>
+          <span id="test-status" class="status-note"></span>
+        </div>
+      </div>
+      <div class="log-tail">
+        <h3>Worker output</h3>
+        <pre id="test-log" class="mono"></pre>
+      </div>
+    </section>
+
+    <!-- LOGS -->
+    <section id="tab-logs" class="tab-panel">
+      <div class="log-tail full">
+        <h3>Full worker log</h3>
+        <pre id="full-log" class="mono"></pre>
+      </div>
+    </section>
+
+    <!-- MCP -->
+    <section id="tab-mcp" class="tab-panel">
+      <div class="settings-box">
+        <h3>Vocal MCP server</h3>
+        <p class="section-sub">The <code>vocal_mcp</code> binary exposes Vocal TTS as a tool AI clients (Claude Code, Cursor, …) can call. Install the snippet below into the client config, or write it to this project's <code>.mcp.json</code>.</p>
+        <div id="mcp-badges" class="badges"></div>
+        <div class="field">
+          <label>Client config (<code>.mcp.json</code>)</label>
+          <pre id="mcp-config" class="mono"></pre>
+        </div>
+        <div class="test-actions">
+          <button id="btn-mcp-install" class="primary">Write to .mcp.json</button>
+          <button id="btn-mcp-copy">Copy config</button>
+          <button id="btn-mcp-test">Test server</button>
+          <span id="mcp-status" class="status-note"></span>
+        </div>
+        <div class="log-tail">
+          <h3>Test result</h3>
+          <pre id="mcp-result" class="mono"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="tab-settings" class="tab-panel">
+      <div class="settings-box">
+        <h3>vocal.config</h3>
+        <div class="field">
+          <label for="set-backend">Backend</label>
+          <select id="set-backend">
+            <option value="swift">swift (Qwen3-TTS)</option>
+            <option value="chatterbox">chatterbox (Python mlx-audio)</option>
+            <option value="native_chatterbox">native_chatterbox (Swift Chatterbox)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="set-model-path">model_path (Qwen3)</label>
+          <input id="set-model-path" type="text" />
+        </div>
+        <div class="field">
+          <label for="set-engine-dir">engine_dir</label>
+          <input id="set-engine-dir" type="text" />
+        </div>
+        <div class="field">
+          <label for="set-speaker">speaker</label>
+          <input id="set-speaker" type="text" />
+        </div>
+        <div class="field">
+          <label for="set-language">language</label>
+          <input id="set-language" type="text" />
+        </div>
+        <div class="field">
+          <label for="set-instruct">instruct</label>
+          <input id="set-instruct" type="text" />
+        </div>
+        <div class="field">
+          <label for="set-temperature">temperature</label>
+          <input id="set-temperature" type="text" />
+        </div>
+        <div class="field">
+          <label for="set-python-bin">python_bin</label>
+          <input id="set-python-bin" type="text" />
+        </div>
+        <div class="field">
+          <label for="set-chatterbox-worker">chatterbox_worker</label>
+          <input id="set-chatterbox-worker" type="text" />
+        </div>
+        <div class="field">
+          <label for="set-chatterbox-model">chatterbox_model</label>
+          <input id="set-chatterbox-model" type="text" />
+        </div>
+        <div class="field">
+          <label for="set-ref-audio">ref_audio</label>
+          <input id="set-ref-audio" type="text" />
+        </div>
+        <div class="field">
+          <label for="set-chatterbox-model-path">chatterbox_model_path</label>
+          <input id="set-chatterbox-model-path" type="text" />
+        </div>
+        <div class="settings-actions">
+          <button id="btn-save-config" class="primary">Save config</button>
+          <span id="settings-status" class="status-note"></span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
