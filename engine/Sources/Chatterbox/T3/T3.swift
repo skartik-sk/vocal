@@ -31,6 +31,8 @@ final class T3CondEnc: Module {
         let s = cond.speakerEmb.reshaped([-1, cond.speakerEmb.dim(-1)])
         let condSpkr = spkrEnc(s).expandedDimensions(axis: 1)      // [B, 1, dim]
         let condPrompt = speechEmb(cond.condPromptSpeechTokens)    // [B, 375, dim]
+        ChatterboxDump(condSpkr, "swift_condSpkr")
+        ChatterboxDump(condPrompt, "swift_condPrompt")
         return concatenated([condSpkr, condPrompt], axis: 1)       // [B, 376, dim]
     }
 }

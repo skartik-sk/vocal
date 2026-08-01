@@ -44,14 +44,18 @@ final class GPT2Attention: Module {
         k = k.reshaped(headShape).transposed(0, 2, 1, 3)
         v = v.reshaped(headShape).transposed(0, 2, 1, 3)
 
-        // mask from the cache offset BEFORE it advances
-        let mask: MLXFast.ScaledDotProductAttentionMaskMode = createAttentionMask(
-            h: hidden, cache: cache.map { [$0] })
-        if let cache {
-            (k, v) = cache.update(keys: k, values: v)
-        }
-        let out = MLXFast.scaledDotProductAttention(
-            queries: q, keys: k, values: v, scale: scale, mask: mask)
+        // Manual attention matching the Python GPT2 exactly (explicit triu causal mask), rather
+        // than MLXFast.sdpa `.causal` — the on-the-floor arithmetic is bit-for-bit the reference.
+        let pastLen = cache?.offset ?? 0
+        if let cache { (k, v) = cache.update(keys: k, values: v) }
+        let qL = q.dim(2), kL = k.dim(2)
+        let qIdx = (MLXArray((0..<qL).map { Int32($0) }) + Int32(pastLen)).reshaped([qL, 1])
+        let kIdx = MLXArray((0..<kL).map { Int32($0) }).reshaped([1, kL])
+        let causal = MLX.where(qIdx .>= kIdx, MLXArray(0.0), MLXArray(-Float.infinity))
+        var attn = matmul(q, k.transposed(0, 1, 3, 2)) * scale   // [B, heads, qL, kL]
+        attn = attn + causal
+        attn = softmax(attn, axis: -1)
+        let out = matmul(attn, v)                               // [B, heads, qL, headDim]
         return cProj(out.transposed(0, 2, 1, 3).reshaped([B, T, embedDim]))
     }
 }
