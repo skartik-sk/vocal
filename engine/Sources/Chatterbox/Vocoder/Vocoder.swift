@@ -215,6 +215,14 @@ final class HiFTGenerator: Module {
     @ModuleInfo(key: "conv_post") var convPost: Conv1dPT
     let stftWindow: MLXArray
 
+    /// The checkpoint ships the STFT window; pour it in after init.
+    func setStftWindow(_ win: MLXArray) {
+        // stftWindow is a let; swap via a stored override.
+        self.stftWindowOverride = win
+    }
+    private var stftWindowOverride: MLXArray?
+    var effectiveStftWindow: MLXArray { stftWindowOverride ?? stftWindow }
+
     init(samplingRate: Int) {
         self.samplingRate = samplingRate
         let upsampleRates = [8, 5, 3]
@@ -281,7 +289,7 @@ final class HiFTGenerator: Module {
         }
         let idx = MLXArray(idxFlat).reshaped([nFrames, nFft])
         var frames = take(s, idx, axis: 1)                  // [B, n_frames, 16]
-        frames = frames * stftWindow                         // window
+        frames = frames * effectiveStftWindow                         // window
         // rfft via matmul: real = frames @ cos, imag = frames @ (-sin); cos/sin are [16,9]
         let realF = matmul(frames, rfftCos)                 // [B, n_frames, 9]
         let imagF = matmul(frames, -rfftSin)
