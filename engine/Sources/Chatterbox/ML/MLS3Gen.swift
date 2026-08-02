@@ -321,7 +321,7 @@ final class MLCFM: Module {
     @ModuleInfo(key: "estimator") var estimator: MLConditionalDecoder
     @ModuleInfo(key: "rand_noise") var randNoise: MLXArray
 
-    init(inChannels: Int = 320, spkEmbDim: Int = 80, inferenceCfgRate: Float = 0.5) {
+    init(inChannels: Int = 320, spkEmbDim: Int = 80, inferenceCfgRate: Float = 0.7) {
         self.inChannels = inChannels
         self.spkEmbDim = spkEmbDim
         self.inferenceCfgRate = inferenceCfgRate

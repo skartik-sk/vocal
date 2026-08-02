@@ -104,6 +104,14 @@ final class MLHindiTests: XCTestCase {
                           embedding: model.conds.genEmbedding)
         let mel = model.flow.inference(token: tok, ref: ref, finalize: false)
         print("[ML] mel shape: \(mel.shape)")
+        // Dump full mel for external comparison.
+        if let outPath = ProcessInfo.processInfo.environment["SWIFT_MEL_OUT"] {
+            let flat = mel.asArray(Float.self)
+            var data = Data()
+            for v in flat { var f = v; data.append(Data(bytes: &f, count: 4)) }
+            try data.write(to: URL(fileURLWithPath: outPath))
+            print("[ML] dumped mel to \(outPath)")
+        }
         let allMel = mel.asArray(Float.self)
         let mean = allMel.reduce(0) { $0 + $1 } / Float(allMel.count)
         let varSum = allMel.reduce(0) { $0 + ($1 - mean) * ($1 - mean) }
@@ -577,6 +585,190 @@ final class MLHindiTests: XCTestCase {
                 print("[ML] rand_noise FULL max diff vs Python: \(maxd)")
             }
         }
+    }
+
+    func testStageCorrelations() async throws {
+        let model = try await ChatterboxML.fromPretrained(Self.modelPath)
+        let pyTokens: [Int32] = [6561, 3677, 6486, 1960, 3913, 6181, 4317, 659, 1946, 731,
+                                 5401, 4269, 1761, 2222, 2388, 6258, 2360, 2519, 4632, 269,
+                                 1480, 1833, 79, 916, 1882, 4595, 4314, 723, 5084, 4816,
+                                 6039, 3789, 5302, 5194, 5346, 1226, 581, 4956, 3590, 2132,
+                                 1805, 1806, 4299, 6405, 4218, 6486, 6486, 6405, 6405, 6405,
+                                 6405, 6405, 6405, 6405, 6079, 6562]
+        let token = MLXArray(pyTokens).reshaped([1, -1])
+        let ref = S3RefML(promptToken: model.conds.genPromptToken,
+                          promptTokenLen: model.conds.genPromptTokenLen,
+                          promptFeat: model.conds.genPromptFeat,
+                          embedding: model.conds.genEmbedding)
+        let n = norm(ref.embedding, axes: [1], keepDims: true) + 1e-8
+        let spk = model.flow.spkEmbedAffine(ref.embedding / n)
+        let fullToken = concatenated([ref.promptToken, token], axis: 1)
+        let tokenLen = ref.promptTokenLen + MLXArray([token.dim(1)])
+        let maxLen = Int(tokenLen.max().item(Int32.self))
+        let seqRange = MLXArray((0..<maxLen).map { Int32($0) }).reshaped([1, maxLen])
+        let mask = (seqRange .< tokenLen.expandedDimensions(axis: -1)).asType(.float32).expandedDimensions(axis: -1)
+        let tokEmb = model.flow.inputEmbedding(clip(fullToken, min: 0, max: 6560)) * mask
+        let (hRaw, _) = model.flow.encoder(tokEmb, xsLens: tokenLen)
+        let h = model.flow.encoderProj(hRaw[0..., 0..<(hRaw.dim(1) - 6), 0...])
+        let melLen1 = ref.promptFeat.dim(1)
+        let melLen2 = h.dim(1) - melLen1
+        var conds = MLXArray.zeros([1, melLen1 + melLen2, 80], dtype: h.dtype)
+        conds[0..., 0..<melLen1, 0...] = ref.promptFeat
+        conds = conds.transposed(0, 2, 1)
+        let totalLen = melLen1 + melLen2
+        let cmask = MLXArray.ones([1, 1, totalLen], dtype: h.dtype)
+        let dec = model.flow.decoder.estimator
+        let mu = h.transposed(0, 2, 1)
+        let t = MLXArray([Float(1 - cos(0.0 * 0.5 * Double.pi))]).reshaped([1])
+        let x = concatenated([model.flow.decoder.randNoise[0..., 0..., 0..<totalLen],
+                              model.flow.decoder.randNoise[0..., 0..., 0..<totalLen]], axis: 0)
+        let maskIn = concatenated([cmask, cmask], axis: 0)
+        let muIn = concatenated([mu, MLXArray.zeros(mu.shape)], axis: 0)
+        let tIn = concatenated([t, t], axis: 0)
+        let spksIn = concatenated([spk, MLXArray.zeros(spk.shape)], axis: 0)
+        let condIn = concatenated([conds, MLXArray.zeros(conds.shape)], axis: 0)
+        let tEmb = dec.timeMlp(sinusoidalPosEmb(tIn, dec.inChannels))
+        let spksBroadcast = broadcast(spksIn.expandedDimensions(axis: -1), to: [2, 80, totalLen])
+        let xCat = concatenated([x, muIn, spksBroadcast, condIn], axis: 1)
+        var cur = dec.downBlocks[0].resnet(xCat, mask: maskIn, timeEmb: tEmb)
+        var curT = cur.transposed(0, 2, 1)
+        for tb in dec.downBlocks[0].transformerBlocks { curT = tb(curT, mask: nil) }
+        cur = curT.transposed(0, 2, 1)
+        if let dc = dec.downBlocks[0].downsample as? MLCausalConv1d { cur = dc(cur * maskIn) }
+        print("[ML] stage down0: \(corrTo(cur, env: "PY_STAGE_DOWN0_PATH"))")
+        for (mi, mb) in dec.midBlocks.enumerated() {
+            cur = mb.resnet(cur, mask: maskIn, timeEmb: tEmb)
+            var ct = cur.transposed(0, 2, 1)
+            for tb in mb.transformerBlocks { ct = tb(ct, mask: nil) }
+            cur = ct.transposed(0, 2, 1)
+            print("[ML] stage mid\(mi): \(corrTo(cur, env: "PY_STAGE_MID\(mi)_PATH"))")
+        }
+        _ = melLen2
+    }
+
+    /// Correlation of batch-0 of `arr` against the Python f32 dump at $env.
+    private func corrTo(_ arr: MLXArray, env: String) -> Float {
+        guard let pyPath = ProcessInfo.processInfo.environment[env],
+              FileManager.default.fileExists(atPath: pyPath) else { return -2 }
+        guard let pyData = try? Data(contentsOf: URL(fileURLWithPath: pyPath)) else { return -3 }
+        let pyArr = pyData.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+        let swArr = arr[0..<1].asArray(Float.self)
+        guard pyArr.count == swArr.count else { return -4 }
+        var num: Float = 0, ps: Float = 0, ss: Float = 0
+        let pm = pyArr.reduce(0) { $0 + $1 } / Float(pyArr.count)
+        let sm = swArr.reduce(0) { $0 + $1 } / Float(swArr.count)
+        for i in 0..<swArr.count {
+            num += (swArr[i] - sm) * (pyArr[i] - pm)
+            ps += (pyArr[i] - pm) * (pyArr[i] - pm)
+            ss += (swArr[i] - sm) * (swArr[i] - sm)
+        }
+        return num / sqrt(ps * ss)
+    }
+
+    func testEulerStep1MatchesPython() async throws {
+        let model = try await ChatterboxML.fromPretrained(Self.modelPath)
+        let pyTokens: [Int32] = [6561, 3677, 6486, 1960, 3913, 6181, 4317, 659, 1946, 731,
+                                 5401, 4269, 1761, 2222, 2388, 6258, 2360, 2519, 4632, 269,
+                                 1480, 1833, 79, 916, 1882, 4595, 4314, 723, 5084, 4816,
+                                 6039, 3789, 5302, 5194, 5346, 1226, 581, 4956, 3590, 2132,
+                                 1805, 1806, 4299, 6405, 4218, 6486, 6486, 6405, 6405, 6405,
+                                 6405, 6405, 6405, 6405, 6079, 6562]
+        let token = MLXArray(pyTokens).reshaped([1, -1])
+        let ref = S3RefML(promptToken: model.conds.genPromptToken,
+                          promptTokenLen: model.conds.genPromptTokenLen,
+                          promptFeat: model.conds.genPromptFeat,
+                          embedding: model.conds.genEmbedding)
+        let n = norm(ref.embedding, axes: [1], keepDims: true) + 1e-8
+        let spk = model.flow.spkEmbedAffine(ref.embedding / n)
+        let fullToken = concatenated([ref.promptToken, token], axis: 1)
+        let tokenLen = ref.promptTokenLen + MLXArray([token.dim(1)])
+        let maxLen = Int(tokenLen.max().item(Int32.self))
+        let seqRange = MLXArray((0..<maxLen).map { Int32($0) }).reshaped([1, maxLen])
+        let mask = (seqRange .< tokenLen.expandedDimensions(axis: -1)).asType(.float32).expandedDimensions(axis: -1)
+        let tokEmb = model.flow.inputEmbedding(clip(fullToken, min: 0, max: 6560)) * mask
+        let (hRaw, _) = model.flow.encoder(tokEmb, xsLens: tokenLen)
+        let h = model.flow.encoderProj(hRaw[0..., 0..<(hRaw.dim(1) - 6), 0...])
+        let melLen1 = ref.promptFeat.dim(1)
+        let melLen2 = h.dim(1) - melLen1
+        var conds = MLXArray.zeros([1, melLen1 + melLen2, 80], dtype: h.dtype)
+        conds[0..., 0..<melLen1, 0...] = ref.promptFeat
+        conds = conds.transposed(0, 2, 1)
+        let totalLen = melLen1 + melLen2
+        let cmask = MLXArray.ones([1, 1, totalLen], dtype: h.dtype)
+        let mu = h.transposed(0, 2, 1)
+        let z = model.flow.decoder.randNoise[0..., 0..., 0..<totalLen]
+        let tSpan = (0...10).map { Float($0) / 10 }.map { 1 - cos($0 * 0.5 * Float.pi) }
+        let t = MLXArray([tSpan[0]]).reshaped([1])
+        let dt = tSpan[1] - tSpan[0]
+        let xIn = concatenated([z, z], axis: 0)
+        let maskIn = concatenated([cmask, cmask], axis: 0)
+        let muIn = concatenated([mu, MLXArray.zeros(mu.shape)], axis: 0)
+        let tIn = concatenated([t, t], axis: 0)
+        let spksIn = concatenated([spk, MLXArray.zeros(spk.shape)], axis: 0)
+        let condIn = concatenated([conds, MLXArray.zeros(conds.shape)], axis: 0)
+        let dphi = model.flow.decoder.estimator(x: xIn, mask: maskIn, mu: muIn,
+                                                t: tIn, spks: spksIn, cond: condIn)
+        let dCond = dphi[0..<1]
+        let dUncond = dphi[1..<2]
+        let d = 1.5 * dCond - 0.5 * dUncond
+        let z1 = z + dt * d
+        print("[ML] z1 head: \(Array(z1[0..., 0..., 0..<1].asArray(Float.self).prefix(6)))")
+        // Full 10-step Euler with cfg rate 0.7 (Python inference_cfg_rate).
+        var zk = z
+        var tk = t
+        var dtk = dt
+        for step in 1...10 {
+            let xk = concatenated([zk, zk], axis: 0)
+            let mk = concatenated([cmask, cmask], axis: 0)
+            let muk = concatenated([mu, MLXArray.zeros(mu.shape)], axis: 0)
+            let tik = concatenated([tk, tk], axis: 0)
+            let spkik = concatenated([spk, MLXArray.zeros(spk.shape)], axis: 0)
+            let condik = concatenated([conds, MLXArray.zeros(conds.shape)], axis: 0)
+            let dp = model.flow.decoder.estimator(x: xk, mask: mk, mu: muk, t: tik, spks: spkik, cond: condik)
+            let dc = dp[0..<1]
+            let du = dp[1..<2]
+            let dd = 1.7 * dc - 0.7 * du
+            zk = zk + dtk * dd
+            tk = tk + dtk
+            if step < 10 { dtk = tSpan[step + 1] - Float(tk.item(Float.self)) }
+            if step == 2 || step == 5 || step == 10 {
+                let key = "PY_Z\(step)_PATH"
+                if let pyPath = ProcessInfo.processInfo.environment[key],
+                   FileManager.default.fileExists(atPath: pyPath) {
+                    let pyData = try Data(contentsOf: URL(fileURLWithPath: pyPath))
+                    let pyArr = pyData.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+                    let swArr = zk[0].asArray(Float.self)
+                    var num: Float = 0, ps: Float = 0, ss: Float = 0
+                    let pm = pyArr.reduce(0) { $0 + $1 } / Float(pyArr.count)
+                    let sm = swArr.reduce(0) { $0 + $1 } / Float(swArr.count)
+                    for i in 0..<swArr.count {
+                        num += (swArr[i] - sm) * (pyArr[i] - pm)
+                        ps += (pyArr[i] - pm) * (pyArr[i] - pm)
+                        ss += (swArr[i] - sm) * (swArr[i] - sm)
+                    }
+                    print("[ML] z\(step) corr vs Python: \(num / sqrt(ps * ss))")
+                }
+            }
+        }
+        print("[ML] z10 head: \(Array(zk[0..., 0..., 0..<1].asArray(Float.self).prefix(6)))")
+        if let pyPath = ProcessInfo.processInfo.environment["PY_Z1_PATH"],
+           FileManager.default.fileExists(atPath: pyPath) {
+            let pyData = try Data(contentsOf: URL(fileURLWithPath: pyPath))
+            let pyArr = pyData.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+            let swArr = z1[0].asArray(Float.self)
+            var num: Float = 0, ps: Float = 0, ss: Float = 0
+            let pm = pyArr.reduce(0) { $0 + $1 } / Float(pyArr.count)
+            let sm = swArr.reduce(0) { $0 + $1 } / Float(swArr.count)
+            for i in 0..<swArr.count {
+                num += (swArr[i] - sm) * (pyArr[i] - pm)
+                ps += (pyArr[i] - pm) * (pyArr[i] - pm)
+                ss += (swArr[i] - sm) * (swArr[i] - sm)
+            }
+            print("[ML] z1 corr vs Python: \(num / sqrt(ps * ss))")
+            let maxd = zip(swArr, pyArr).map { abs($0.0 - $0.1) }.max() ?? 1
+            print("[ML] z1 max abs diff: \(maxd)")
+        }
+        _ = melLen2
     }
 
     func testFullGenerateToWav() async throws {

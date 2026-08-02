@@ -158,7 +158,7 @@ final class ChatterboxML: Module {
                           promptFeat: conds.genPromptFeat,
                           embedding: conds.genEmbedding)
         let mel = flow.inference(token: toks, ref: ref, finalize: false)   // (1, 80, T)
-        let wav = mel2wav.generate(mel.squeezed(axis: 0))        // [Float] 24kHz
+        let wav = mel2wav.generate(mel)                        // [Float] 24kHz
         return wav
     }
 
