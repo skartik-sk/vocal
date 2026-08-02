@@ -78,4 +78,33 @@ public enum ChatterboxLoader {
             .filter { $0.hasSuffix(".scales") }
             .map { String($0.dropLast(".scales".count)) })
     }
+
+    /// Per-tensor quantization group size. For a (rows, nGroups) scales tensor and a
+    /// (rows, packedCols) uint32 weight at 4-bit, the dequantized width is packedCols*8
+    /// and group size = width / nGroups. (Rows are NOT divided by groups — speech_head is
+    /// 8194 rows with 16 groups → group 64, not 512.)
+    public static func groupSizeForPath(_ weights: [String: MLXArray]) -> [String: Int] {
+        var out = [String: Int]()
+        for (k, v) in weights where k.hasSuffix(".scales") {
+            let path = String(k.dropLast(".scales".count))
+            guard let packed = weights[path + ".weight"] else { continue }
+            let groups = v.dim(1)
+            let packedCols = packed.dim(packed.ndim - 1)
+            // 4-bit: each u32 holds 8 values.
+            let width = packedCols * 8
+            if groups > 0 { out[path] = width / groups }
+        }
+        return out
+    }
+
+    /// Per-tensor quantization bits. This model is 4-bit; packed width = rows*width*4/32
+    /// u32s, i.e. packedCols = width/8 for every 4-bit tensor.
+    public static func bitsForPath(_ weights: [String: MLXArray]) -> [String: Int] {
+        var out = [String: Int]()
+        for k in weights.keys where k.hasSuffix(".scales") {
+            let path = String(k.dropLast(".scales".count))
+            out[path] = 4
+        }
+        return out
+    }
 }
