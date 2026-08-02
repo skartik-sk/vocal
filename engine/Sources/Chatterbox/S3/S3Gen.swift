@@ -58,7 +58,7 @@ final class S3Gen: Module {
     @ModuleInfo(key: "spk_embed_affine_layer") var spkEmbedAffine: Linear
     @ModuleInfo(key: "encoder") var encoder: UpsampleConformerEncoder
     @ModuleInfo(key: "encoder_proj") var encoderProj: Linear
-    var decoder: S3CFM
+    @ModuleInfo(key: "decoder") var decoder: S3CFM
     @ModuleInfo(key: "mel2wav") var mel2wav: HiFTGenerator
 
     init(meanflow: Bool) {
@@ -67,7 +67,7 @@ final class S3Gen: Module {
         _encoder.wrappedValue = UpsampleConformerEncoder(
             inputSize: 512, outputSize: 512, attentionHeads: 8, linearUnits: 2048, numBlocks: 6)
         _encoderProj.wrappedValue = Linear(512, 80)
-        self.decoder = S3CFM(meanflow: meanflow)
+        _decoder.wrappedValue = S3CFM(meanflow: meanflow)
         _mel2wav.wrappedValue = HiFTGenerator(samplingRate: 24000)
         super.init()
     }

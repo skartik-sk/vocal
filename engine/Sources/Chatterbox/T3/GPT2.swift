@@ -76,15 +76,15 @@ final class GPT2MLP: Module {
 
 final class GPT2Block: Module {
     @ModuleInfo(key: "ln_1") private(set) var ln1: LayerNorm
-    private(set) var attn: GPT2Attention
+    @ModuleInfo(key: "attn") private(set) var attn: GPT2Attention
     @ModuleInfo(key: "ln_2") private(set) var ln2: LayerNorm
-    private(set) var mlp: GPT2MLP
+    @ModuleInfo(key: "mlp") private(set) var mlp: GPT2MLP
 
     init(_ config: GPT2Config) {
         self._ln1.wrappedValue = LayerNorm(dimensions: config.nEmbd, eps: Float(config.layerNormEpsilon))
-        self.attn = GPT2Attention(config)
+        self._attn.wrappedValue = GPT2Attention(config)
         self._ln2.wrappedValue = LayerNorm(dimensions: config.nEmbd, eps: Float(config.layerNormEpsilon))
-        self.mlp = GPT2MLP(config)
+        self._mlp.wrappedValue = GPT2MLP(config)
         super.init()
     }
 
@@ -116,8 +116,13 @@ final class GPT2Model: Module {
         var hidden = inputsEmbeds
         let T = hidden.dim(1)
         let pastLength = cache.first?.offset ?? 0
-        let positionIds = MLXArray(Int32(pastLength) ..< Int32(pastLength + T))
-        hidden = hidden + wpe(positionIds)
+        let positionIds = MLXArray((pastLength..<(pastLength + T)).map { Int32($0) })
+        ChatterboxDump(positionIds, "swift_positionIds")
+        ChatterboxDump(wpe.weight[0..<8, 0...], "swift_wpe_direct")   // rows 0-7 via slice
+        let wpeOut = wpe(positionIds)
+        ChatterboxDump(wpeOut, "swift_gpt2_wpe")
+        hidden = hidden + wpeOut
+        ChatterboxDump(hidden, "swift_gpt2_posemb")
         for i in 0..<h.count {
             hidden = h[i](hidden, cache: cache[i])
             if i == 0 { ChatterboxDump(hidden, "swift_gpt2_block0") }

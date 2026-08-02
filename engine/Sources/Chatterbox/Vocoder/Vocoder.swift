@@ -149,9 +149,15 @@ final class F0Predictor: Module {
     /// mel (B, 80, T) → f0 (B, T)
     func callAsFunction(_ mel: MLXArray) -> MLXArray {
         var x = mel
-        for conv in condnet { x = eluAct(conv(x)) }
+        for (i, conv) in condnet.enumerated() {
+            let c = conv(x)
+            if i == 0 { ChatterboxDump(c, "swift_f0_conv0_raw") }
+            x = eluAct(c)
+        }
+        ChatterboxDump(x, "swift_f0_condnet")
         x = x.transposed(0, 2, 1)                            // (B, T, C)
         var f0 = classifier(x)[0..., 0..., 0..<1]           // (B, T, 1)
+        ChatterboxDump(f0, "swift_f0_pre_abs")
         f0 = abs(f0)
         return f0[0..., 0..., 0..<1].squeezed(axis: 2)      // (B, T)
     }
@@ -199,8 +205,8 @@ final class HiFTGenerator: Module {
     let numKernels = 3
     let f0UpsampleScale: Int
 
-    var f0Predictor: F0Predictor
-    var mSource: SourceModule
+    @ModuleInfo(key: "f0_predictor") var f0Predictor: F0Predictor
+    @ModuleInfo(key: "m_source") var mSource: SourceModule
     @ModuleInfo(key: "conv_pre") var convPre: Conv1dPT
     @ModuleInfo(key: "ups") var ups: [ConvTranspose1dPT]
     @ModuleInfo(key: "source_downs") var sourceDowns: [Conv1dPT]
@@ -218,10 +224,10 @@ final class HiFTGenerator: Module {
         let sourceResKernels = [7, 7, 11]
         let sourceResDilations: [[Int]] = [[1, 3, 5], [1, 3, 5], [1, 3, 5]]
         let baseCh = 512
-        self.f0Predictor = F0Predictor()
+        _f0Predictor.wrappedValue = F0Predictor()
         self.f0UpsampleScale = upsampleRates.reduce(1, *) * 4   // 120 * 4 = 480
-        self.mSource = SourceModule(samplingRate: samplingRate, harmonicNum: 8,
-                                    sineAmp: 0.1, noiseStd: 0.003, voicedThreshold: 10)
+        _mSource.wrappedValue = SourceModule(samplingRate: samplingRate, harmonicNum: 8,
+                                             sineAmp: 0.1, noiseStd: 0.003, voicedThreshold: 10)
         self.stftWindow = MLXArray(hanningPeriodic(16))
 
         _convPre.wrappedValue = Conv1dPT(80, baseCh, kernel: 7, padding: 3)
@@ -316,7 +322,7 @@ final class HiFTGenerator: Module {
 
     /// Inverse STFT (overlap-add) in plain Float. magnitude/phase [9, T] -> [T_audio].
     private func istft(_ magnitude: MLXArray, _ phase: MLXArray) -> [Float] {
-        let mag = magnitude.asArray(Float.self)              // [9*T]
+        let mag = magnitude.asArray(Float.self)              // [9*T] row-major: index = k*T + f
         let pha = phase.asArray(Float.self)
         let T = magnitude.dim(1)
         let N = nFft, H = hopLen
@@ -328,13 +334,14 @@ final class HiFTGenerator: Module {
         var winSum = [Float](repeating: 0, count: outputLen)
         let win = hanningPeriodic(N)
         for f in 0..<T {
+            let m0 = mag[f], mN = mag[8 * T + f]
             // reconstruct 16 samples for frame f
             for n in 0..<N {
-                var acc: Float = mag[f * 9 + 0]                       // r0 (k=0)
-                acc += mag[f * 9 + 8] * (n % 2 == 0 ? 1.0 : -1.0)    // r8 * (-1)^n (Nyquist)
+                var acc: Float = m0                                 // r0 (k=0)
+                acc += mN * (n % 2 == 0 ? 1.0 : -1.0)              // r8 * (-1)^n (Nyquist)
                 for k in 1..<8 {
-                    let rk = mag[f * 9 + k] * cos(pha[f * 9 + k])
-                    let ik = mag[f * 9 + k] * sin(pha[f * 9 + k])
+                    let rk = mag[k * T + f] * cos(pha[k * T + f])
+                    let ik = mag[k * T + f] * sin(pha[k * T + f])
                     acc += 2.0 * (rk * c(k, n) - ik * s(k, n))
                 }
                 acc /= Float(N)
@@ -353,10 +360,14 @@ final class HiFTGenerator: Module {
     /// mel (B, 80, T) -> audio [Float] (mono, batch 0).
     func generate(_ mel: MLXArray) -> [Float] {
         let f0 = f0Predictor(mel)                              // (B, T)
+        ChatterboxDump(f0, "swift_voc_f0")
         let f0Up = repeated(f0.expandedDimensions(axis: -1), count: f0UpsampleScale, axis: 1)  // (B, T*480, 1)
         let (sMerge, _) = mSource(f0Up)                        // (B, T_audio, 1)
         let s = sMerge.transposed(0, 2, 1)                     // (B, 1, T_audio)
+        ChatterboxDump(s, "swift_voc_src")
         let (mag, pha) = decode(mel, s)
+        ChatterboxDump(mag, "swift_voc_mag")
+        ChatterboxDump(pha, "swift_voc_pha")
         eval(mag); eval(pha)
         let wav = istft(mag[0], pha[0])
         return wav.map { Swift.min(Swift.max($0, -audioLimit), audioLimit) }

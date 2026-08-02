@@ -29,9 +29,13 @@ public struct ModelFiles {
         if let p = ProcessInfo.processInfo.environment["CHATTERBOX_FP_WEIGHTS"] {
             return URL(fileURLWithPath: p)
         }
-        let inDir = dir.appendingPathComponent("model.fp.safetensors")
-        if FileManager.default.fileExists(atPath: inDir.path) { return inDir }
-        return URL(fileURLWithPath: ".native-weights/model.fp.safetensors")
+        let candidates = [
+            dir.appendingPathComponent("model.fp.safetensors"),               // inside the model dir
+            URL(fileURLWithPath: "../.native-weights/model.fp.safetensors"),  // engine/ -> repo root
+            URL(fileURLWithPath: ".native-weights/model.fp.safetensors"),     // cwd
+        ]
+        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+            ?? candidates[0]
     }
     public var condsURL: URL { dir.appendingPathComponent("conds.safetensors") }
 }

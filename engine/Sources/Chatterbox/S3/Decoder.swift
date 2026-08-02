@@ -52,10 +52,10 @@ final class ConvTranspose1dPT: Module {
 /// Causal 1D conv: left-pad time, then a no-pad conv. weight path: `.conv.conv`.
 final class CausalConv1d: Module {
     let causalPadding: Int
-    let conv: Conv1dPT
+    @ModuleInfo(key: "conv") var conv: Conv1dPT
     init(_ inCh: Int, _ outCh: Int, kernel k: Int, dilation: Int = 1) {
         self.causalPadding = (k - 1) * dilation
-        self.conv = Conv1dPT(inCh, outCh, kernel: k, padding: 0, dilation: dilation)
+        _conv.wrappedValue = Conv1dPT(inCh, outCh, kernel: k, padding: 0, dilation: dilation)
         super.init()
     }
     func callAsFunction(_ x: MLXArray) -> MLXArray {
@@ -193,13 +193,13 @@ final class FFNetSeq: Module {
 }
 
 final class TransformerBlock: Module {
-    var attn1: SelfAttention1D
-    var ff: FeedForward
+    @ModuleInfo(key: "attn1") var attn1: SelfAttention1D
+    @ModuleInfo(key: "ff") var ff: FeedForward
     @ModuleInfo(key: "norm1") var norm1: LayerNorm
     @ModuleInfo(key: "norm3") var norm3: LayerNorm
     init(_ dim: Int, numHeads: Int, headDim: Int) {
-        self.attn1 = SelfAttention1D(dim, numHeads: numHeads, headDim: headDim)
-        self.ff = FeedForward(dim, 4)
+        _attn1.wrappedValue = SelfAttention1D(dim, numHeads: numHeads, headDim: headDim)
+        _ff.wrappedValue = FeedForward(dim, 4)
         _norm1.wrappedValue = LayerNorm(dimensions: dim, eps: 1e-5)
         _norm3.wrappedValue = LayerNorm(dimensions: dim, eps: 1e-5)
         super.init()

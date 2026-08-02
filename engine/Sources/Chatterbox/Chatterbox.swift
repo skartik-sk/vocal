@@ -13,6 +13,7 @@
 import Foundation
 import MLX
 import MLXNN
+import MLXLMCommon
 import Tokenizers
 
 /// Top-level native Chatterbox-Turbo model.
@@ -37,31 +38,31 @@ public final class ChatterboxTurbo: Module {
     public static func fromPretrained(_ modelPath: String) async throws -> ChatterboxTurbo {
         let files = ModelFiles(modelPath)
         let config = try ChatterboxConfig.load(at: files.configURL)
-        // Load the pre-dequantized float32 weights (one-time Python asset). The 4-bit
-        // model.safetensors uses a packing mlx-audio dequantizes at load in a way mx.dequantize
-        // can't reproduce from the raw tensors, so we consume the already-float dump.
-        var weights = try MLX.loadArrays(url: files.fpWeightsURL)
+        // Load the 4-bit model.safetensors (U32 packed + scales/biases) and quantize the Swift
+        // module tree so update() can pour the packed weights into QuantizedLinear/Embedding —
+        // this matches how mlx-audio's `load_model` (the working backend) holds the model.
+        var weights = try ChatterboxLoader.loadWeights(files)
         let conds = try ChatterboxLoader.loadConds(files)
-        // Structural renames so the flat weight keys match the Swift module tree:
+        // Structural renames so flat keys match the Swift module tree.
         weights = Dictionary(uniqueKeysWithValues: weights.map { (k, v) -> (String, MLXArray) in
-            // pos_bias_u/v: raw params -> held as Embedding.weight
             if k.hasSuffix(".pos_bias_u") || k.hasSuffix(".pos_bias_v") { return (k + ".weight", v) }
-            // Snake.alpha: raw [channels] param -> Embedding(channels,1).weight
             if k.hasSuffix(".alpha") { return (k + ".weight", v.reshaped([v.dim(0), 1])) }
-            // FeedForward.net.[0|1]: integer-indexed -> map keys (see FFNetSeq)
             if k.contains(".ff.net.0.") { return (k.replacingOccurrences(of: ".ff.net.0.", with: ".ff.net.gelu."), v) }
             if k.contains(".ff.net.1.") { return (k.replacingOccurrences(of: ".ff.net.1.", with: ".ff.net.out."), v) }
             return (k, v)
         })
+        let quantPaths = ChatterboxLoader.quantizedPaths(weights)
 
         let model = ChatterboxTurbo(config: config, conds: conds)
-        // Float model — no quantize()/dequant. verify:[] ignores extras (ve.*, pos_enc.pe, …).
+        if let q = config.quantization {
+            quantize(model: model, groupSize: q.groupSize, bits: q.bits) { path, module in
+                if module is Linear { return quantPaths.contains(path) }
+                if module is Embedding { return quantPaths.contains(path) }
+                return false
+            }
+        }
         try model.update(parameters: ModuleParameters.unflattened(weights), verify: [])
         eval(model)
-        if ProcessInfo.processInfo.environment["CHATTERBOX_DUMP"] != nil {
-            ChatterboxDump(model.t3.speechHead.weight, "swift_speech_head_w")
-            ChatterboxDump(model.t3.tfmr.wte.weight, "swift_wte")
-        }
 
         model.tokenizer = try? await AutoTokenizer.from(modelFolder: files.dir)
         print("[Chatterbox] ✅ loaded (t3 \(config.gpt2.nLayer)L/\(config.gpt2.nEmbd)d, "
@@ -71,6 +72,40 @@ public final class ChatterboxTurbo: Module {
 
     /// Text → 24 kHz mono Float samples.
     public func generate(text: String) -> [Float] {
+        // DEBUG ISOLATION: feed a precomputed embeds tensor (float32 [1, T, 1024]) straight
+        // into the GPT2 forward to test the transformer independent of T3's embed prep.
+        // CHATTERBOX_TEST_EMBEDS=<path>  (also set CHATTERBOX_DUMP=</dir>).
+        if let p = ProcessInfo.processInfo.environment["CHATTERBOX_TEST_EMBEDS"],
+           let data = try? Data(contentsOf: URL(fileURLWithPath: p)) {
+            let n = data.count / 4
+            let T = n / 1024
+            let embeds = MLXArray(data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) })
+                .reshaped([1, T, 1024])
+            ChatterboxDump(embeds, "swift_fed_embeds")
+            let cache: [KVCache] = (0..<t3.tfmr.config.nLayer).map { _ in KVCacheSimple() }
+            let hidden = t3.tfmr(inputsEmbeds: embeds, cache: cache)
+            let lastIdx = hidden.dim(1) - 1
+            ChatterboxDump(hidden, "swift_t3_hidden_py")
+            ChatterboxDump(t3.speechHead(hidden[0..., lastIdx, 0...]), "swift_t3_logits0_py")
+            print("[Chatterbox] test-forward on external embeds dumped (T=\(T))")
+            return []
+        }
+
+        // DEBUG ISOLATION: feed a precomputed mel (float32 [1,80,T] or [80,T]) into the vocoder
+        // to test HiFTNet independent of S3. CHATTERBOX_TEST_MEL=<path>.
+        if let p = ProcessInfo.processInfo.environment["CHATTERBOX_TEST_MEL"],
+           let data = try? Data(contentsOf: URL(fileURLWithPath: p)) {
+            let n = data.count / 4
+            let T = n / 80
+            let mel = MLXArray(data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) })
+                .reshaped([1, 80, T])
+            var wav = s3gen.mel2wav.generate(mel)
+            wav = ChatterboxTurbo.applyTrimFade(wav)
+            ChatterboxDump(MLXArray(wav), "swift_voc_wav")
+            print("[Chatterbox] vocoder test on external mel dumped (T=\(T), samples=\(wav.count))")
+            return wav
+        }
+
         guard let tok = tokenizer else {
             print("[Chatterbox] ⚠️ no tokenizer; playing stub tone")
             return ChatterboxTurbo.stubTone()

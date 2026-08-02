@@ -161,12 +161,12 @@ final class PositionwiseFeedForward: Module {
 
 final class ConformerEncoderLayer: Module {
     @ModuleInfo(key: "norm_mha") var normMha: LayerNorm
-    var selfAttn: RelPositionMultiHeadedAttention
+    @ModuleInfo(key: "self_attn") var selfAttn: RelPositionMultiHeadedAttention
     @ModuleInfo(key: "norm_ff") var normFf: LayerNorm
     @ModuleInfo(key: "feed_forward") var feedForward: PositionwiseFeedForward
     init(_ size: Int, _ nHead: Int, _ dInner: Int) {
         _normMha.wrappedValue = LayerNorm(dimensions: size, eps: 1e-12)
-        self.selfAttn = RelPositionMultiHeadedAttention(nHead, size)
+        _selfAttn.wrappedValue = RelPositionMultiHeadedAttention(nHead, size)
         _normFf.wrappedValue = LayerNorm(dimensions: size, eps: 1e-12)
         _feedForward.wrappedValue = PositionwiseFeedForward(size, dInner)
         super.init()
@@ -194,7 +194,7 @@ final class PreLookaheadLayer: Module {
     }
     func callAsFunction(_ x: MLXArray) -> MLXArray {
         var out = padded(x, widths: [[0, 0], [0, preLookaheadLen], [0, 0]])
-        out = leakyRelu(conv1(out), negativeSlope: 0.1)
+        out = leakyRelu(conv1(out), negativeSlope: 0.01)
         out = padded(out, widths: [[0, 0], [2, 0], [0, 0]])
         out = conv2(out)
         return out + x
