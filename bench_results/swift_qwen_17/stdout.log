@@ -1,0 +1,15 @@
+[VocalWorker] 🚀 Booting Qwen3-TTS engine... (mode: whole-clip)
+[VocalWorker] ⏳ Loading model: /Users/singupallikartik/Developer/fun-projects/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit
+"🔊 Applied quantization: 4-bit, group_size=64"
+[VocalWorker] ✅ Model loaded in 3.09s (speaker=Dylan, language=English, instruct=be very Fast, Serious, and not skip any word like you are reading audiobook, temp=0.8). Waiting for sentences...
+text:-> This is Swift Qwen 1. 
+[VocalWorker] 🗣️ 1.7s audio in 1.72s — playing: "This is Swift Qwen 1."
+text:-> 7B speaking. 
+[VocalWorker] 🗣️ 1.0s audio in 1.22s — playing: "7B speaking."
+text:-> This is a test of the voice engine. 
+[VocalWorker] 🗣️ 2.0s audio in 1.96s — playing: "This is a test of the voice engine."
+text:-> I hope you can hear me clearly. 
+[VocalWorker] 🗣️ 1.8s audio in 1.94s — playing: "I hope you can hear me clearly."
+text:-> Testing one two three. 
+[VocalWorker] 🗣️ 1.4s audio in 1.47s — playing: "Testing one two three."
+[VocalWorker] 🛑 stdin closed. Freeing GPU memory and exiting.

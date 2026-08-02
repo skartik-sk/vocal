@@ -1,0 +1,5 @@
+backend	wall_s	peak_bytes	avg_bytes	rss_samples
+swift_chatterbox	10.76	539115520	501943820	41
+py_chatterbox	18.12	1131806720	728210492	68
+swift_qwen_06	18.46	1806548992	682790560	70
+swift_qwen_17	14.37	2318958592	1216907339	54
