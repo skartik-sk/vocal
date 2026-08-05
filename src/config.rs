@@ -39,11 +39,11 @@ impl Default for VocalConfig {
     fn default() -> Self {
         let home = VOCAL_ROOT;
         Self {
-            backend: "chatterbox".into(),
+            backend: "native_chatterbox".into(),
             model_path: "/Users/singupallikartik/Developer/fun-projects/Qwen3-TTS-12Hz-0.6B-CustomVoice-4bit".into(),
             engine_dir: format!("{home}/engine"),
             speaker: "Dylan".into(),
-            language: "English".into(),
+            language: "hi".into(),
             instruct: Some(
                 "be very Fast, Serious, and not skip any word like you are reading audiobook".into(),
             ),
@@ -52,7 +52,7 @@ impl Default for VocalConfig {
             chatterbox_worker: format!("{home}/scripts/chatterbox_worker.py"),
             chatterbox_model: "mlx-community/chatterbox-turbo-4bit".into(),
             ref_audio: None,
-            chatterbox_model_path: "/Users/singupallikartik/.cache/huggingface/hub/models--mlx-community--chatterbox-turbo-4bit/snapshots/c63817725071d7b5269c7b558772d6e8cbf59cec".into(),
+            chatterbox_model_path: "/Users/singupallikartik/.cache/huggingface/hub/models--mlx-community--chatterbox-4bit/snapshots/f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8".into(),
         }
     }
 }
@@ -94,9 +94,9 @@ impl VocalConfig {
         PathBuf::from(&self.engine_dir)
     }
 
-    /// Path to the compiled native Chatterbox worker: `<engine_dir>/.build/release/ChatterboxWorker`.
+    /// Path to the compiled native Chatterbox worker: `<engine_dir>/.build/release/ChatterboxMLWorker`.
     pub fn chatterbox_binary(&self) -> PathBuf {
-        PathBuf::from(&self.engine_dir).join(".build/release/ChatterboxWorker")
+        PathBuf::from(&self.engine_dir).join(".build/release/ChatterboxMLWorker")
     }
 
     /// Serialize this config back to `key = value` lines — the mirror of
@@ -156,7 +156,7 @@ mod tests {
     fn load_overrides_defaults_and_handles_missing_file() {
         let none = VocalConfig::load(Path::new("/does/not/exist/vocal.config"));
         assert_eq!(none.speaker, "Dylan");
-        assert_eq!(none.backend, "chatterbox");
+        assert_eq!(none.backend, "native_chatterbox");
 
         let p = std::env::temp_dir().join("vocal_config_test.cfg");
         {
@@ -183,7 +183,7 @@ mod tests {
         );
         assert_eq!(
             cfg.chatterbox_binary(),
-            PathBuf::from("/tmp/engine/.build/release/ChatterboxWorker")
+            PathBuf::from("/tmp/engine/.build/release/ChatterboxMLWorker")
         );
         assert_eq!(cfg.engine_cwd(), PathBuf::from("/tmp/engine"));
     }

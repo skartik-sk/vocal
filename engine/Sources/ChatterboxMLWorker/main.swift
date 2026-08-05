@@ -1,53 +1,139 @@
 //
-//  main.swift — Chatterbox multilingual (Hindi) worker: reads text from
-//  CHATTERBOX_ML_TEXT (or the first CLI arg), synthesizes speech, and writes
-//  a 24 kHz WAV to CHATTERBOX_ML_OUT (default: /tmp/chatterbox_ml.wav).
+//  main.swift — Chatterbox multilingual (Hindi) worker: reads one sentence per
+//  line from stdin (sent by the Rust host), synthesizes speech with the native
+//  Swift chatterbox-4bit port, and plays it through AVAudioEngine. Exits when
+//  stdin closes, freeing the model instantly.
+//
+//  Env: CHATTERBOX_ML_MODEL (model dir), CHATTERBOX_ML_LANG (hi/en),
+//       CHATTERBOX_ML_MAX_TOKENS (cap per sentence).
 //
 
 import Foundation
+import AVFoundation
 import MLX
 import Chatterbox
 
-func writeWav(_ samples: [Float], to url: URL, sampleRate: Int = 24000) throws {
-    var pcm = Data()
-    for s in samples {
-        var v = Int16(max(-1, min(1, s)) * 32767)
-        pcm.append(Data(bytes: &v, count: 2))
+/// Plays 24 kHz mono Float PCM clips sequentially via AVAudioEngine.
+final class AudioPlayer {
+    private let engine = AVAudioEngine()
+    private let node = AVAudioPlayerNode()
+    private let format: AVAudioFormat
+    private var pendingBuffers = 0
+    private let queueCondition = NSCondition()
+
+    init(sampleRate: Double = 24000) {
+        format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
+        engine.attach(node)
+        engine.connect(node, to: engine.mainMixerNode, format: format)
+        do { try engine.start() } catch {
+            print("[ChatterboxMLWorker] ⚠️ AVAudioEngine failed to start: \(error)")
+        }
+        node.play()
     }
-    var out = Data()
-    func put(_ s: String) { out.append(s.data(using: .ascii)!) }
-    func put32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { out.append(Data($0)) } }
-    func put16(_ v: UInt16) { withUnsafeBytes(of: v.littleEndian) { out.append(Data($0)) } }
-    put("RIFF"); put32(UInt32(36 + pcm.count)); put("WAVE")
-    put("fmt "); put32(16); put16(1); put16(1); put32(UInt32(sampleRate))
-    put32(UInt32(sampleRate * 2)); put16(2); put16(16)
-    put("data"); put32(UInt32(pcm.count)); out.append(pcm)
-    try out.write(to: url)
+
+    func queueAndPlay(_ samples: [Float]) {
+        let frames = AVAudioFrameCount(samples.count)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else { return }
+        buffer.frameLength = frames
+        let dst = buffer.floatChannelData![0]
+        for i in 0..<samples.count { dst[i] = samples[i] }
+
+        queueCondition.lock()
+        pendingBuffers += 1
+        queueCondition.unlock()
+
+        node.scheduleBuffer(buffer) { [weak self] in
+            guard let self = self else { return }
+            self.queueCondition.lock()
+            self.pendingBuffers -= 1
+            if self.pendingBuffers == 0 {
+                self.queueCondition.signal()
+            }
+            self.queueCondition.unlock()
+        }
+    }
+
+    func waitUntilFinished() {
+        queueCondition.lock()
+        while pendingBuffers > 0 {
+            queueCondition.wait()
+        }
+        queueCondition.unlock()
+        Thread.sleep(forTimeInterval: 0.2)
+    }
 }
 
 @main
-struct ChatterboxMLWorkerMain {
+struct ChatterboxMLWorker {
     static func main() async throws {
+        setbuf(stdout, nil)
         let env = ProcessInfo.processInfo.environment
         let modelPath = env["CHATTERBOX_ML_MODEL"] ?? "/tmp/chatterbox-4bit"
-        let outPath = env["CHATTERBOX_ML_OUT"] ?? "/tmp/chatterbox_ml.wav"
-        let text: String
-        if CommandLine.arguments.count > 1 {
-            text = CommandLine.arguments.dropFirst().joined(separator: " ")
-        } else if let t = env["CHATTERBOX_ML_TEXT"] {
-            text = t
-        } else {
-            text = "This is Swift Chatterbox speaking. नमस्ते दोस्तों, this is the real test."
-        }
         let lang = env["CHATTERBOX_ML_LANG"] ?? "hi"
-        let maxTokens = Int(env["CHATTERBOX_ML_MAX_TOKENS"] ?? "150") ?? 150
+        let maxTokens = Int(env["CHATTERBOX_ML_MAX_TOKENS"] ?? "300") ?? 300
 
+        // Cap MLX GPU cache + memory so long sessions stay flat instead of
+        // ballooning. The 4-bit model needs ~0.65 GB peak; 1 GB headroom is
+        // plenty. relaxed=true lets MLX spill rather than OOM.
+        let memMB = Int(env["CHATTERBOX_ML_MEM_MB"] ?? "1024") ?? 1024
+        MLX.GPU.set(cacheLimit: memMB * 1024 * 1024)
+        MLX.GPU.set(memoryLimit: memMB * 1024 * 1024, relaxed: true)
+        print("[ChatterboxMLWorker] memory cap: \(memMB) MB (cached=\(MLX.GPU.cacheMemory), peak=\(MLX.GPU.peakMemory))")
+
+        print("[ChatterboxMLWorker] loading \(modelPath) ...")
         let model = try await ChatterboxML.fromPretrained(modelPath)
-        let wav = model.generate(text: text, language: lang, temperature: 0.8,
-                                 maxSpeechTokens: maxTokens)
-        let peak = wav.map { abs($0) }.max() ?? 0
-        try writeWav(wav, to: URL(fileURLWithPath: outPath))
-        print("[ChatterboxMLWorker] text-tokens=\(model.tokenCount(text: text, language: lang)) wav=\(wav.count) peak=\(peak)")
-        print("[ChatterboxMLWorker] wrote \(outPath)")
+        let player = AudioPlayer()
+        print("[ChatterboxMLWorker] ready (lang=\(lang)). Waiting for sentences...")
+
+        // Lookahead pipeline: generate the NEXT sentence in the background while
+        // the current one plays, so speech is gapless (streaming feel).
+        var pending: [(String, [Float])] = []
+
+        // Pre-fill the first sentence so playback starts immediately.
+        if let first = readLine() {
+            let text = first.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty {
+                print("[ChatterboxMLWorker] ⏳ pre-generating first: \"\(text.prefix(40))\"")
+                let wav = model.generate(text: text, language: lang, temperature: 0.8,
+                                         maxSpeechTokens: maxTokens)
+                MLX.GPU.clearCache()
+                pending.append((text, wav))
+            }
+        }
+
+        // Read remaining lines, generating the next sentence during playback.
+        while let line = readLine() {
+            let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if text.isEmpty { continue }
+
+            // Kick off background generation of this new sentence.
+            let genTask = Task {
+                let w = model.generate(text: text, language: lang, temperature: 0.8,
+                                       maxSpeechTokens: maxTokens)
+                MLX.GPU.clearCache()
+                return w
+            }
+
+            // Play the pending sentence(s) while the next one generates.
+            for (t, wav) in pending {
+                let secs = Double(wav.count) / 24000.0
+                print("[ChatterboxMLWorker] 🗣️ \(String(format: "%.1f", secs))s — \(t.prefix(50))")
+                player.queueAndPlay(wav)
+            }
+            pending.removeAll()
+
+            // Wait for the background generation and queue it next.
+            let wav = try await genTask.value
+            pending.append((text, wav))
+        }
+
+        // Play any final pending sentence, then wait for audio to finish.
+        for (t, wav) in pending {
+            let secs = Double(wav.count) / 24000.0
+            print("[ChatterboxMLWorker] 🗣️ \(String(format: "%.1f", secs))s — \(t.prefix(50))")
+            player.queueAndPlay(wav)
+        }
+        player.waitUntilFinished()
+        print("[ChatterboxMLWorker] 🛑 stdin closed. Freeing GPU memory and exiting.")
     }
 }

@@ -21,14 +21,29 @@ pub struct WorkerLaunch {
 pub fn launch_spec(cfg: &VocalConfig) -> WorkerLaunch {
     match cfg.backend.as_str() {
         "native_chatterbox" => {
-            // Pure-Swift Chatterbox worker (no Python). Loads the 4-bit model natively.
+            // Pure-Swift multilingual Chatterbox worker (no Python). Loads the
+            // chatterbox-4bit model natively and speaks Hindi + English.
             WorkerLaunch {
                 program: cfg.chatterbox_binary().to_string_lossy().into_owned(),
                 args: vec![],
-                envs: vec![(
-                    "CHATTERBOX_MODEL_PATH".into(),
-                    cfg.chatterbox_model_path.clone(),
-                )],
+                envs: vec![
+                    (
+                        "CHATTERBOX_ML_MODEL".into(),
+                        cfg.chatterbox_model_path.clone(),
+                    ),
+                    (
+                        "CHATTERBOX_ML_LANG".into(),
+                        cfg.language.clone(),
+                    ),
+                    (
+                        "CHATTERBOX_ML_MAX_TOKENS".into(),
+                        "300".into(),
+                    ),
+                    (
+                        "CHATTERBOX_ML_MEM_MB".into(),
+                        "1024".into(),
+                    ),
+                ],
                 cwd: Some(cfg.engine_cwd()),
             }
         }
