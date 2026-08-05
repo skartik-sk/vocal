@@ -968,35 +968,26 @@ final class MLHindiTests: XCTestCase {
         XCTAssertTrue(peak > 0.2, "should be loud")
     }
 
-    func testHindiSameSentenceToWav() async throws {
+    func testAnnouncementAB() async throws {
         let model = try await ChatterboxML.fromPretrained(Self.modelPath)
-        // Exact same text as the Python reference.
-        let text = "नमस्ते, मैं हिंदी में बोल रहा हूँ।"
+        // Same text Python announced with: model name + Hindi sentence.
+        let text = "यह पायथन चैटरबॉक्स बोल रहा है। नमस्ते, मैं हिंदी में बोल रहा हूँ।"
         let ids = model.tokenizer!.tokenize(text: text, languageID: "hi")
         let textTokens = MLXArray(ids.map { Int32($0) }).reshaped([1, -1])
         let cond = T3MLCond(speakerEmb: model.conds.t3SpeakerEmb,
                             emotionAdv: model.conds.t3EmotionAdv,
                             condPromptSpeechTokens: model.conds.t3CondPromptSpeechTokens)
-        // Cap at 55 tokens (Python reference produced 56).
         let toks = model.t3.inference(cond: cond, textTokens: textTokens,
-                                      maxNewTokens: 55, temperature: 0.8)
-        let flat = toks.asArray(Int32.self)
-        print("[ML] swift tokens count=\(flat.count) hasEOS=\(flat.contains(6562))")
-        var tokData = Data()
-        for v in flat { var i = v; tokData.append(Data(bytes: &i, count: 4)) }
-        try tokData.write(to: URL(fileURLWithPath: "/tmp/swift_tokens.raw"))
-        // Mel length from the same tokens.
-        let ref2 = S3RefML(promptToken: model.conds.genPromptToken,
-                           promptTokenLen: model.conds.genPromptTokenLen,
-                           promptFeat: model.conds.genPromptFeat,
-                           embedding: model.conds.genEmbedding)
-        let mel2 = model.flow.inference(token: toks, ref: ref2, finalize: false)
-        print("[ML] swift mel from same tokens: \(mel2.shape)")
-        let wav = model.mel2wav.generate(mel2)
+                                      maxNewTokens: 120, temperature: 0.8)
+        let ref = S3RefML(promptToken: model.conds.genPromptToken,
+                          promptTokenLen: model.conds.genPromptTokenLen,
+                          promptFeat: model.conds.genPromptFeat,
+                          embedding: model.conds.genEmbedding)
+        let mel = model.flow.inference(token: toks, ref: ref, finalize: false)
+        let wav = model.mel2wav.generate(mel)
         let peak = wav.map { abs($0) }.max() ?? 0
-        let rms = sqrt(wav.reduce(0) { $0 + $1 * $1 } / Float(max(wav.count, 1)))
-        print("[ML] swift same-sentence: samples=\(wav.count) peak=\(peak) rms=\(rms)")
-        print("[ML] (python: 59520 samples, peak 0.686)")
+        print("[ML] swift announce: samples=\(wav.count) peak=\(peak)")
+        print("[ML] (python announce: 91200 samples, peak 0.845)")
         var pcm = Data()
         for s in wav {
             var v = Int16(max(-1, min(1, s)) * 32767)
@@ -1010,8 +1001,8 @@ final class MLHindiTests: XCTestCase {
         put("fmt "); put32(16); put16(1); put16(1); put32(24000)
         put32(UInt32(24000 * 2)); put16(2); put16(16)
         put("data"); put32(UInt32(pcm.count)); out.append(pcm)
-        try out.write(to: URL(fileURLWithPath: "/tmp/swift_hindi_same.wav"))
-        print("[ML] wrote /tmp/swift_hindi_same.wav")
+        try out.write(to: URL(fileURLWithPath: "/tmp/swift_announce.wav"))
+        print("[ML] wrote /tmp/swift_announce.wav")
         XCTAssertTrue(peak > 0.05)
     }
 }
