@@ -18,6 +18,7 @@ fn main() {
             vocal_manager_lib::commands::get_config,
             vocal_manager_lib::commands::save_config,
             vocal_manager_lib::commands::set_qwen_model,
+            vocal_manager_lib::commands::set_backend,
             vocal_manager_lib::commands::check_status,
             vocal_manager_lib::commands::worker_start,
             vocal_manager_lib::commands::worker_speak,

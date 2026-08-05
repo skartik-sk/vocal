@@ -257,6 +257,25 @@ pub mod commands {
             .map_err(|e| format!("failed to write {}: {e}", path.display()))
     }
 
+    /// Switch the active TTS backend: "swift" (Qwen), "chatterbox" (Python),
+    /// or "native_chatterbox" (pure Swift multilingual). Persists to
+    /// vocal.config and restarts the worker so the new model takes effect.
+    #[tauri::command]
+    pub fn set_backend(state: State<AppState>, backend: String) -> Result<(), String> {
+        let valid = ["swift", "chatterbox", "native_chatterbox"].contains(&backend.as_str());
+        if !valid {
+            return Err(format!("unknown backend '{backend}' (expected swift|chatterbox|native_chatterbox)"));
+        }
+        let path = config_path();
+        let mut cfg = VocalConfig::load(&path);
+        cfg.backend = backend;
+        fs::write(&path, cfg.serialize())
+            .map_err(|e| format!("failed to write {}: {e}", path.display()))?;
+        // Restart the worker under the new backend (kills any existing one first).
+        let _ = state.worker.stop();
+        state.worker.start(&VocalConfig::load(&path))
+    }
+
     #[tauri::command]
     pub fn check_status(state: State<AppState>) -> Result<serde_json::Value, String> {
         let path = config_path();

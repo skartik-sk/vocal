@@ -88,9 +88,25 @@ struct ChatterboxMLWorker {
         // Lookahead pipeline: generate the NEXT sentence in the background while
         // the current one plays, so speech is gapless (streaming feel).
         var pending: [(String, [Float])] = []
+        // Idle timeout: if no new sentence arrives within this many seconds,
+        // exit and free the model (the Tauri host keeps stdin open, so without
+        // this the worker lingers in memory after speaking).
+        let idleTimeout = Double(env["CHATTERBOX_ML_IDLE_SECS"] ?? "30") ?? 30
+
+        func readLine(timeout: TimeInterval) -> String? {
+            // Read stdin with a deadline using a background task + semaphore.
+            let sem = DispatchSemaphore(value: 0)
+            var result: String? = nil
+            DispatchQueue.global().async {
+                result = Swift.readLine()
+                sem.signal()
+            }
+            _ = sem.wait(timeout: .now() + timeout)
+            return result
+        }
 
         // Pre-fill the first sentence so playback starts immediately.
-        if let first = readLine() {
+        if let first = readLine(timeout: idleTimeout) {
             let text = first.trimmingCharacters(in: .whitespacesAndNewlines)
             if !text.isEmpty {
                 print("[ChatterboxMLWorker] ⏳ pre-generating first: \"\(text.prefix(40))\"")
@@ -102,7 +118,7 @@ struct ChatterboxMLWorker {
         }
 
         // Read remaining lines, generating the next sentence during playback.
-        while let line = readLine() {
+        while let line = readLine(timeout: idleTimeout) {
             let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
             if text.isEmpty { continue }
 
@@ -134,6 +150,6 @@ struct ChatterboxMLWorker {
             player.queueAndPlay(wav)
         }
         player.waitUntilFinished()
-        print("[ChatterboxMLWorker] 🛑 stdin closed. Freeing GPU memory and exiting.")
+        print("[ChatterboxMLWorker] 🛑 idle timeout (\(Int(idleTimeout))s) or stdin closed. Freeing GPU memory and exiting.")
     }
 }

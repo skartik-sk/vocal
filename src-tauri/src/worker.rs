@@ -103,8 +103,10 @@ impl WorkerManager {
     /// Spawn the worker for the given backend and start reading its stdout.
     /// Returns immediately — loading is async; the UI watches [`Self::state`].
     pub fn start(&self, cfg: &VocalConfig) -> Result<(), String> {
+        // Kill any existing worker first so a stale/lingering process (e.g. one
+        // that hasn't hit its idle timeout yet) never blocks a fresh spawn.
         if self.handle.lock().unwrap().is_some() {
-            return Err("worker already running".into());
+            let _ = self.stop();
         }
 
         let spec = launch_spec(cfg);

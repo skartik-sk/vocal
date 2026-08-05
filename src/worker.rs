@@ -43,6 +43,10 @@ pub fn launch_spec(cfg: &VocalConfig) -> WorkerLaunch {
                         "CHATTERBOX_ML_MEM_MB".into(),
                         "1024".into(),
                     ),
+                    (
+                        "CHATTERBOX_ML_IDLE_SECS".into(),
+                        "30".into(),
+                    ),
                 ],
                 cwd: Some(cfg.engine_cwd()),
             }
