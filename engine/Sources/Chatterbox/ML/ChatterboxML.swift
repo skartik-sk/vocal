@@ -10,7 +10,7 @@ import MLXNN
 import MLXLMCommon
 
 /// Multilingual Chatterbox model (chatterbox-4bit).
-final class ChatterboxML: Module {
+public final class ChatterboxML: Module {
     let config: LlamaT3Config
     @ModuleInfo(key: "t3") var t3: T3ML
     @ModuleInfo(key: "flow") var flow: MLFlow
@@ -26,7 +26,7 @@ final class ChatterboxML: Module {
     }
 
     /// Load model weights + tokenizer + conds from a model directory.
-    static func fromPretrained(_ modelPath: String) async throws -> ChatterboxML {
+    public static func fromPretrained(_ modelPath: String) async throws -> ChatterboxML {
         let dir = URL(fileURLWithPath: modelPath)
         let config = LlamaT3Config()   // fixed architecture for chatterbox-4bit
         let allWeights = try MLX.loadArrays(url: dir.appendingPathComponent("model.safetensors"))
@@ -166,8 +166,17 @@ final class ChatterboxML: Module {
     }
 
     /// Full text → 24kHz waveform (float samples).
-    func generate(text: String, language: String = "hi", temperature: Float = 0.8) -> [Float] {
-        let toks = speechTokens(text: text, language: language, temperature: temperature)
+    public func generate(text: String, language: String = "hi", temperature: Float = 0.8,
+                         maxSpeechTokens: Int = 300) -> [Float] {
+        guard let tok = tokenizer else { return [] }
+        let ids = tok.tokenize(text: text, languageID: language)
+        let textTokens = MLXArray(ids.map { Int32($0) }).reshaped([1, -1])
+        let cond = T3MLCond(
+            speakerEmb: conds.t3SpeakerEmb,
+            emotionAdv: conds.t3EmotionAdv,
+            condPromptSpeechTokens: conds.t3CondPromptSpeechTokens)
+        let toks = t3.inference(cond: cond, textTokens: textTokens,
+                                maxNewTokens: maxSpeechTokens, temperature: temperature)
         let ref = S3RefML(promptToken: conds.genPromptToken,
                           promptTokenLen: conds.genPromptTokenLen,
                           promptFeat: conds.genPromptFeat,
@@ -175,6 +184,18 @@ final class ChatterboxML: Module {
         let mel = flow.inference(token: toks, ref: ref, finalize: false)   // (1, 80, T)
         let wav = mel2wav.generate(mel)                        // [Float] 24kHz
         return wav
+    }
+
+    /// Text → speech tokens count (for diagnostics).
+    public func tokenCount(text: String, language: String = "hi") -> Int {
+        guard let tok = tokenizer else { return 0 }
+        return tok.tokenize(text: text, languageID: language).count
+    }
+
+    /// Tokenize text to token IDs (public for workers).
+    public func tokenize(text: String, language: String = "hi") -> [Int] {
+        guard let tok = tokenizer else { return [] }
+        return tok.tokenize(text: text, languageID: language)
     }
 
     // Baked conds (set by loader).

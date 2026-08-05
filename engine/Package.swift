@@ -99,6 +99,15 @@ let package = Package(
             path: "Sources/ChatterboxWorker"
         ),
 
+        // MARK: - Chatterbox ML Worker (multilingual Hindi, writes wav)
+        .executableTarget(
+            name: "ChatterboxMLWorker",
+            dependencies: [
+                "Chatterbox",
+            ],
+            path: "Sources/ChatterboxMLWorker"
+        ),
+
         // MARK: - Tests
         .testTarget(
             name: "Qwen3TTSTests",

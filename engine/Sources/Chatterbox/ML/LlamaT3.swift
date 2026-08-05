@@ -196,7 +196,7 @@ final class LlamaAttention: Module {
 
         let out = attentionWithCacheUpdate(
             queries: queries, keys: keys, values: values, cache: cache,
-            scale: scale, mask: .none)
+            scale: scale, mask: .causal)
         return wo(out.transposed(0, 2, 1, 3).reshaped(B, L, -1))
     }
 }
