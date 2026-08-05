@@ -1005,4 +1005,35 @@ final class MLHindiTests: XCTestCase {
         print("[ML] wrote /tmp/swift_announce.wav")
         XCTAssertTrue(peak > 0.05)
     }
+
+    func testSwiftT3Tokens() async throws {
+        let model = try await ChatterboxML.fromPretrained(Self.modelPath)
+        let text = "नमस्ते, मैं हिंदी में बोल रहा हूँ।"
+        let ids = model.tokenizer!.tokenize(text: text, languageID: "hi")
+        let tt = MLXArray(ids.map { Int32($0) }).reshaped([1, -1])
+        let cond = T3MLCond(speakerEmb: model.conds.t3SpeakerEmb,
+                            emotionAdv: model.conds.t3EmotionAdv,
+                            condPromptSpeechTokens: model.conds.t3CondPromptSpeechTokens)
+        let toks = model.t3.inference(cond: cond, textTokens: tt, maxNewTokens: 2, temperature: 0.8, greedy: true)
+        let flat = toks.asArray(Int32.self)
+        print("[ML] swift GREEDY first tokens: \(Array(flat.prefix(4)))")
+        print("[ML] (python greedy: [6561 3677])")
+        // Dump Swift's top-10 first-token logits.
+        let bos = MLXArray([Int32(6561)]).reshaped([1, 1])
+        let (embeds, _) = model.t3.prepareInputEmbeds(cond: cond, textTokens: tt, speechTokens: bos, cfgWeight: 0.5)
+        let cache: [KVCache] = (0..<model.t3.config.hiddenLayers).map { _ in KVCacheSimple() }
+        let hidden = model.t3.tfmr(embeds, cache: cache)
+        let lg = model.t3.speechHead(hidden[0..., hidden.dim(1)-1, 0...])
+        let c = lg[0..<1]; let u = lg[1..<2]
+        let combined = c + 0.5 * (c - u)
+        let top = argSort(-combined[0])[0..<10]
+        let topVals = takeAlong(combined[0], top, axis: 0)
+        print("[ML] swift top10 ids: \(top.asArray(Int32.self))")
+        print("[ML] swift top10 logits: \(topVals.asArray(Float.self))")
+        print("[ML] (python top10 ids: [3677 3680 3676 1489 3679 1493 1490 1492 1735 3922])")
+        let toks2 = model.t3.inference(cond: cond, textTokens: tt, maxNewTokens: 60, temperature: 0.8)
+        let flat2 = toks2.asArray(Int32.self)
+        print("[ML] swift T3 tokens: \(Array(flat2.prefix(20))) count=\(flat2.count) hasEOS=\(flat2.contains(6562)) min=\(flat2.min() ?? 0) max=\(flat2.max() ?? 0)")
+        print("[ML] python tokens: [6561 3677 6486 1960 3913 6181 4317 659 1946 731 5401 4269 1761 2222 2388 6258 2360 2519 4632 269]")
+    }
 }

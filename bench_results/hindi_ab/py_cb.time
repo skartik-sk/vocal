@@ -1,22 +1,22 @@
 pkuseg not available - Chinese segmentation will be skipped
-Fetching 2 files:   0%|          | 0/2 [00:00<?, ?it/s]Fetching 2 files: 100%|██████████| 2/2 [00:00<00:00, 1103.76it/s]
+Fetching 2 files:   0%|          | 0/2 [00:00<?, ?it/s]Fetching 2 files: 100%|██████████| 2/2 [00:00<00:00, 2344.50it/s]
 pkuseg not available - Chinese segmentation will be skipped
   py tokens: 151 wav: 144960
-       12.88 real         3.40 user         1.60 sys
-          1369407488  maximum resident set size
+       12.54 real         2.91 user         1.51 sys
+          1353498624  maximum resident set size
                    0  average shared memory size
                    0  average unshared data size
                    0  average unshared stack size
-              102287  page reclaims
-                3165  page faults
+              103466  page reclaims
+                4038  page faults
                    0  swaps
                    0  block input operations
                    0  block output operations
                   26  messages sent
-                  64  messages received
+                  65  messages received
                    0  signals received
-                6052  voluntary context switches
-               34374  involuntary context switches
-         32640010018  instructions retired
-         11530048764  cycles elapsed
-          5043803456  peak memory footprint
+                7109  voluntary context switches
+               44027  involuntary context switches
+         32914473332  instructions retired
+         12280023477  cycles elapsed
+          5038544064  peak memory footprint
