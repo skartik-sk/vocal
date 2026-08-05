@@ -32,7 +32,8 @@ final class ChatterboxML: Module {
         let allWeights = try MLX.loadArrays(url: dir.appendingPathComponent("model.safetensors"))
 
         // ---- Split + rename by component ----
-        // t3: strip "t3.", map "tfmr.model." -> "tfmr.", drop embed_tokens/lm_head/rotary_emb.
+        // t3: strip "t3.", map "tfmr.model." -> "tfmr.", drop embed_tokens/lm_head/rotary_emb,
+        // then re-add "t3." so keys match the module-tree paths.
         var weights = Dictionary(uniqueKeysWithValues: allWeights.compactMap { (k, v) -> (String, MLXArray)? in
             guard k.hasPrefix("t3.") else { return nil }
             var key = String(k.dropFirst(3))
@@ -40,7 +41,7 @@ final class ChatterboxML: Module {
             if key.contains("embed_tokens") || key.contains("lm_head") || key.contains("rotary_emb") {
                 return nil
             }
-            return (key, v)
+            return ("t3." + key, v)
         })
         // s3gen.flow.* -> flow.* (keep the "flow" prefix to match MLFlow tree),
         // renaming decoder blocks down_blocks_N -> down_blocks.N (array form) and
@@ -55,16 +56,30 @@ final class ChatterboxML: Module {
             key = key.replacingOccurrences(of: "transformer_", with: "transformer_blocks.")
             if key.hasSuffix(".pos_bias_u") || key.hasSuffix(".pos_bias_v") {
                 weights[key + ".weight"] = v
+            } else if key.hasPrefix("flow.decoder.estimator.final_proj.") {
+                // Conv1dPT wraps the conv in `.conv`.
+                weights[key.replacingOccurrences(of: "final_proj.", with: "final_proj.conv.")] = v
             } else {
                 weights[key] = v
             }
         }
-        // s3gen.mel2wav.* -> mel2wav.* (and snake .alpha -> .alpha.weight [dim,1])
+        // s3gen.mel2wav.* -> mel2wav.* (snake .alpha -> .weight, convs wrap in .conv).
         for (k, v) in allWeights where k.hasPrefix("s3gen.mel2wav.") {
             var key = "mel2wav." + String(k.dropFirst("s3gen.mel2wav.".count))
             if key.hasSuffix(".alpha") {
                 key += ".weight"
                 weights[key] = v.reshaped([v.dim(0), 1])
+            } else if key.contains("f0_predictor.condnet.") && (key.hasSuffix(".weight") || key.hasSuffix(".bias")) {
+                let base = String(key.dropLast((key.hasSuffix(".weight") ? ".weight" : ".bias").count))
+                weights[base + ".conv." + (key.hasSuffix(".weight") ? "weight" : "bias")] = v
+            } else if key.hasPrefix("mel2wav.conv_pre.") || key.hasPrefix("mel2wav.conv_post.")
+                        || key.hasPrefix("mel2wav.ups.") || key.hasPrefix("mel2wav.source_downs.")
+                        || key.hasPrefix("mel2wav.resblocks.") || key.hasPrefix("mel2wav.source_resblocks.") {
+                // Conv1dPT/ConvTranspose1dPT/HifiResBlock wrap convs in `.conv`.
+                let dot = key.lastIndex(of: ".")!
+                let base = String(key[..<dot])
+                let leaf = String(key[key.index(after: dot)...])
+                weights[base + ".conv." + leaf] = v
             } else {
                 weights[key] = v
             }

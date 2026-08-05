@@ -320,7 +320,7 @@ final class HiFTGenerator: Module {
             }
             h = xs! / Float(numKernels)
         }
-        h = leakyRelu(h)
+        h = leakyRelu(h, negativeSlope: 0.1)
         h = convPost(h)
         let half = nFft / 2 + 1
         let magnitude = exp(h[0..., 0..<half, 0...])

@@ -21,7 +21,7 @@ final class MLHindiTests: XCTestCase {
     }
 
     func testLoadsAndTokenizesHindi() async throws {
-        let model = try await ChatterboxML.fromPretrained(Self.modelPath)
+        let model = try await ChatterboxML.fromPretrained("/tmp/chatterbox-4bit")
         XCTAssertNotNil(model.tokenizer)
         let toks = model.tokenizer!.tokenize(text: "नमस्ते, मैं हिंदी में बोल रहा हूँ।", languageID: "hi")
         print("[ML] hindi text tokens: \(toks)")
@@ -32,7 +32,7 @@ final class MLHindiTests: XCTestCase {
     func testGeneratesHindiSpeechTokens() async throws {
         print("[ML] starting test")
         fflush(stdout)
-        let model = try await ChatterboxML.fromPretrained(Self.modelPath)
+        let model = try await ChatterboxML.fromPretrained("/tmp/chatterbox-4bit")
         print("[ML] loaded ok")
         fflush(stdout)
         guard let tok = model.tokenizer else { XCTFail("no tokenizer"); return }
@@ -65,10 +65,7 @@ final class MLHindiTests: XCTestCase {
         print("[ML] hidden shape: \(hidden.shape)")
         fflush(stdout)
         // test speechHead alone
-        let sh = model.t3.speechHead as! QuantizedLinear
-        print("[ML] speechHead groupSize=\(sh.groupSize) bits=\(sh.bits) weight=\(sh.weight.shape) scales=\(sh.scales.shape)")
-        fflush(stdout)
-        let lg = sh(hidden[0..., 69, 0...])
+        let lg = model.t3.speechHead(hidden[0..., 69, 0...])
         print("[ML] logits shape: \(lg.shape)")
         fflush(stdout)
         // Verify embeddings dequantized correctly vs Python
@@ -80,6 +77,7 @@ final class MLHindiTests: XCTestCase {
                                       maxNewTokens: 60, temperature: 0.8)
         let flat = toks.asArray(Int32.self)
         print("[ML] hindi speech tokens: \(Array(flat.prefix(60))) count=\(flat.count)")
+        print("[ML] has EOS(6562): \(flat.contains(6562))")
         // Python reference: [6561, 3677, 6486, 1960, 3913, ...] — starts with BOS
         XCTAssertGreaterThan(flat.count, 10)
         XCTAssertEqual(Int(flat[0]), 6561)
@@ -89,7 +87,7 @@ final class MLHindiTests: XCTestCase {
     }
 
     func testFlowProducesMel() async throws {
-        let model = try await ChatterboxML.fromPretrained(Self.modelPath)
+        let model = try await ChatterboxML.fromPretrained("/tmp/chatterbox-4bit")
         // Use the exact tokens Python used (so the mel is directly comparable).
         let pyTokens: [Int32] = [6561, 3677, 6486, 1960, 3913, 6181, 4317, 659, 1946, 731,
                                  5401, 4269, 1761, 2222, 2388, 6258, 2360, 2519, 4632, 269,
@@ -141,7 +139,7 @@ final class MLHindiTests: XCTestCase {
     }
 
     func testFlowEncoderMatchesPython() async throws {
-        let model = try await ChatterboxML.fromPretrained(Self.modelPath)
+        let model = try await ChatterboxML.fromPretrained("/tmp/chatterbox-4bit")
         let pyTokens: [Int32] = [6561, 3677, 6486, 1960, 3913, 6181, 4317, 659, 1946, 731,
                                  5401, 4269, 1761, 2222, 2388, 6258, 2360, 2519, 4632, 269,
                                  1480, 1833, 79, 916, 1882, 4595, 4314, 723, 5084, 4816,
@@ -189,7 +187,7 @@ final class MLHindiTests: XCTestCase {
     }
 
     func testDecoderFirstStepMatchesPython() async throws {
-        let model = try await ChatterboxML.fromPretrained(Self.modelPath)
+        let model = try await ChatterboxML.fromPretrained("/tmp/chatterbox-4bit")
         let pyTokens: [Int32] = [6561, 3677, 6486, 1960, 3913, 6181, 4317, 659, 1946, 731,
                                  5401, 4269, 1761, 2222, 2388, 6258, 2360, 2519, 4632, 269,
                                  1480, 1833, 79, 916, 1882, 4595, 4314, 723, 5084, 4816,
@@ -221,6 +219,25 @@ final class MLHindiTests: XCTestCase {
         let cmask = MLXArray.ones([1, 1, totalLen], dtype: h.dtype)
         let mu = h.transposed(0, 2, 1)   // (1,80,420)
         let z = model.flow.decoder.randNoise[0..., 0..., 0..<mu.dim(2)]
+        // Dump mu/cond/z for cross-checking vs Python.
+        if let outPath = ProcessInfo.processInfo.environment["SWIFT_MU_OUT"] {
+            let flat = mu[0].asArray(Float.self)
+            var data = Data()
+            for v in flat { var f = v; data.append(Data(bytes: &f, count: 4)) }
+            try data.write(to: URL(fileURLWithPath: outPath))
+        }
+        if let outPath = ProcessInfo.processInfo.environment["SWIFT_COND_OUT"] {
+            let flat = conds[0].asArray(Float.self)
+            var data = Data()
+            for v in flat { var f = v; data.append(Data(bytes: &f, count: 4)) }
+            try data.write(to: URL(fileURLWithPath: outPath))
+        }
+        if let outPath = ProcessInfo.processInfo.environment["SWIFT_Z0_OUT"] {
+            let flat = z[0].asArray(Float.self)
+            var data = Data()
+            for v in flat { var f = v; data.append(Data(bytes: &f, count: 4)) }
+            try data.write(to: URL(fileURLWithPath: outPath))
+        }
         let t = MLXArray([Float(1 - cos(0.0 * 0.5 * Double.pi))]).reshaped([1])
         let xIn = concatenated([z, z], axis: 0)
         let maskIn = concatenated([cmask, cmask], axis: 0)
@@ -231,7 +248,118 @@ final class MLHindiTests: XCTestCase {
         // Pass raw x, mu, t, spks, cond (decoder builds the concat) — matches Python.
         let dphi = model.flow.decoder.estimator(x: xIn, mask: maskIn, mu: muIn,
                                                 t: tIn, spks: spksIn, cond: condIn)
+        // Manual chain for comparison (should be identical to dphi).
+        let tEmbM = model.flow.decoder.estimator.timeMlp(sinusoidalPosEmb(tIn, 320))
+        let spkM = broadcast(spksIn.expandedDimensions(axis: -1), to: [2, 80, 420])
+        let xCatM = concatenated([xIn, muIn, spkM, condIn], axis: 1)
+        var curM = model.flow.decoder.estimator.downBlocks[0].resnet(xCatM, mask: maskIn, timeEmb: tEmbM)
+        var curTM = curM.transposed(0, 2, 1)
+        for tb in model.flow.decoder.estimator.downBlocks[0].transformerBlocks { curTM = tb(curTM, mask: nil) }
+        curM = curTM.transposed(0, 2, 1)
+        if let dc = model.flow.decoder.estimator.downBlocks[0].downsample as? MLCausalConv1d { curM = dc(curM * maskIn) }
+        for mb in model.flow.decoder.estimator.midBlocks {
+            curM = mb.resnet(curM, mask: maskIn, timeEmb: tEmbM)
+            var ctm = curM.transposed(0, 2, 1)
+            for tb in mb.transformerBlocks { ctm = tb(ctm, mask: nil) }
+            curM = ctm.transposed(0, 2, 1)
+        }
+        print("[ML] manual mid-chain shape: \(curM.shape)")
         print("[ML] dphi shape: \(dphi.shape)")
+        // Manual up block + final, using down0 output as skip (recompute down0).
+        var downM = model.flow.decoder.estimator.downBlocks[0].resnet(xCatM, mask: maskIn, timeEmb: tEmbM)
+        var downTM = downM.transposed(0, 2, 1)
+        for tb in model.flow.decoder.estimator.downBlocks[0].transformerBlocks { downTM = tb(downTM, mask: nil) }
+        downM = downTM.transposed(0, 2, 1)
+        if let dc = model.flow.decoder.estimator.downBlocks[0].downsample as? MLCausalConv1d { downM = dc(downM * maskIn) }
+        // up: concat mid[..420] + skip(downM 420) -> 512ch
+        if let outPath = ProcessInfo.processInfo.environment["SWIFT_MID11_OUT"] {
+            let flat = curM[0].asArray(Float.self)
+            var data = Data()
+            for v in flat { var f = v; data.append(Data(bytes: &f, count: 4)) }
+            try data.write(to: URL(fileURLWithPath: outPath))
+        }
+        if let outPath = ProcessInfo.processInfo.environment["SWIFT_DOWN0_OUT"] {
+            let flat = downM[0].asArray(Float.self)
+            var data = Data()
+            for v in flat { var f = v; data.append(Data(bytes: &f, count: 4)) }
+            try data.write(to: URL(fileURLWithPath: outPath))
+        }
+        let upIn2 = concatenated([curM[0..., 0..., 0..<420], downM], axis: 1)
+        if let outPath = ProcessInfo.processInfo.environment["SWIFT_UPIN_OUT"] {
+            let flat = upIn2[0].asArray(Float.self)
+            var data = Data()
+            for v in flat { var f = v; data.append(Data(bytes: &f, count: 4)) }
+            try data.write(to: URL(fileURLWithPath: outPath))
+        }
+        // Compare up resnet block1 and full resnet vs Python.
+        let upB1 = model.flow.decoder.estimator.upBlocks[0].resnet.block1(upIn2, mask: maskIn)
+        if let outPath = ProcessInfo.processInfo.environment["SWIFT_UPB1_OUT"] {
+            let flat = upB1[0].asArray(Float.self)
+            var data = Data()
+            for v in flat { var f = v; data.append(Data(bytes: &f, count: 4)) }
+            try data.write(to: URL(fileURLWithPath: outPath))
+        }
+        print("[ML] up block1 head: \(Array(upB1[0..., 0..., 0..<1].asArray(Float.self).prefix(4)))")
+        if let pyPath = ProcessInfo.processInfo.environment["PY_UPB1_PATH"],
+           FileManager.default.fileExists(atPath: pyPath) {
+            let pyData = try Data(contentsOf: URL(fileURLWithPath: pyPath))
+            let pyArr = pyData.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+            let swArr = upB1[0].asArray(Float.self)
+            var num: Float = 0, ps: Float = 0, ss: Float = 0
+            let pm = pyArr.reduce(0) { $0 + $1 } / Float(pyArr.count)
+            let sm = swArr.reduce(0) { $0 + $1 } / Float(swArr.count)
+            for i in 0..<swArr.count {
+                num += (swArr[i] - sm) * (pyArr[i] - pm)
+                ps += (pyArr[i] - pm) * (pyArr[i] - pm)
+                ss += (swArr[i] - sm) * (swArr[i] - sm)
+            }
+            print("[ML] up block1 corr vs Python: \(num / sqrt(ps * ss))")
+        }
+        var upM = model.flow.decoder.estimator.upBlocks[0].resnet(upIn2, mask: maskIn, timeEmb: tEmbM)
+        var upTM = upM.transposed(0, 2, 1)
+        let upBias = maskToBias(maskIn, T: upTM.dim(1), dtype: upTM.dtype)
+        for tb in model.flow.decoder.estimator.upBlocks[0].transformerBlocks { upTM = tb(upTM, mask: upBias) }
+        upM = upTM.transposed(0, 2, 1)
+        if let uc = model.flow.decoder.estimator.upBlocks[0].upsample as? MLCausalConv1d { upM = uc(upM * maskIn) }
+        if let outPath = ProcessInfo.processInfo.environment["SWIFT_UP0_OUT"] {
+            let flat = upM[0].asArray(Float.self)
+            var data = Data()
+            for v in flat { var f = v; data.append(Data(bytes: &f, count: 4)) }
+            try data.write(to: URL(fileURLWithPath: outPath))
+            print("[ML] dumped up0 to \(outPath)")
+        }
+        print("[ML] manual up0 head: \(Array(upM[0..., 0..., 0..<1].asArray(Float.self).prefix(6)))")
+        if let pyPath = ProcessInfo.processInfo.environment["PY_UP0_PATH"],
+           FileManager.default.fileExists(atPath: pyPath) {
+            let pyData = try Data(contentsOf: URL(fileURLWithPath: pyPath))
+            let pyArr = pyData.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+            let swArr = upM[0].asArray(Float.self)
+            var num: Float = 0, ps: Float = 0, ss: Float = 0
+            let pm = pyArr.reduce(0) { $0 + $1 } / Float(pyArr.count)
+            let sm = swArr.reduce(0) { $0 + $1 } / Float(swArr.count)
+            for i in 0..<swArr.count {
+                num += (swArr[i] - sm) * (pyArr[i] - pm)
+                ps += (pyArr[i] - pm) * (pyArr[i] - pm)
+                ss += (swArr[i] - sm) * (swArr[i] - sm)
+            }
+            print("[ML] manual up0 corr vs Python: \(num / sqrt(ps * ss))")
+        }
+        // final
+        var fin = model.flow.decoder.estimator.finalBlock(upM, mask: maskIn)
+        fin = model.flow.decoder.estimator.finalProj(fin * maskIn)
+        // Compare manual full vs dphi
+        let fullM = fin.asArray(Float.self)
+        let dArr = dphi.asArray(Float.self)
+        var num: Float = 0, ps: Float = 0, ss: Float = 0
+        let pm = fullM.reduce(0) { $0 + $1 } / Float(fullM.count)
+        let sm = dArr.reduce(0) { $0 + $1 } / Float(dArr.count)
+        for i in 0..<dArr.count {
+            num += (dArr[i] - sm) * (fullM[i] - pm)
+            ps += (fullM[i] - pm) * (fullM[i] - pm)
+            ss += (dArr[i] - sm) * (dArr[i] - sm)
+        }
+        print("[ML] dphi vs manual-full corr: \(num / sqrt(ps * ss))")
+        print("[ML] manual-full[0,:,0] head: \(Array(fin[0..., 0..., 0..<1].asArray(Float.self).prefix(6)))")
         let head = dphi[0..., 0..., 0..<1].asArray(Float.self)
         print("[ML] dphi[0,:,0] head: \(Array(head.prefix(6)))")
         if let pyPath = ProcessInfo.processInfo.environment["PY_DPHI_PATH"],
@@ -255,7 +383,7 @@ final class MLHindiTests: XCTestCase {
     }
 
     func testDumpDecoderWeights() async throws {
-        let model = try await ChatterboxML.fromPretrained(Self.modelPath)
+        let model = try await ChatterboxML.fromPretrained("/tmp/chatterbox-4bit")
         let db = model.flow.decoder.estimator.downBlocks[0]
         let w = db.resnet.block1.conv.conv.weight
         print("[ML] resnet conv weight: \(w.shape) dtype=\(w.dtype)")
@@ -280,9 +408,24 @@ final class MLHindiTests: XCTestCase {
         print("[ML] mid mlp_linear scales: \((mb.resnet.mlpLinear as? QuantizedLinear)?.scales.shape ?? [])")
         // Up block 0
         let ub = model.flow.decoder.estimator.upBlocks[0]
-        print("[ML] up block1 conv w: \(Array(ub.resnet.block1.conv.conv.weight.asArray(Float.self).prefix(4)))")
-        print("[ML] up mlp type: \(type(of: ub.resnet.mlpLinear))")
-        print("[ML] up upsample type: \(type(of: ub.upsample))")
+        print("[ML] final_proj weight: \(Array(model.flow.decoder.estimator.finalProj.conv.weight.asArray(Float.self).prefix(4)))")
+        let f0p = model.mel2wav.f0Predictor
+        print("[ML] f0 condnet count: \(f0p.condnet.count)")
+        print("[ML] f0 condnet0 w head: \(Array(f0p.condnet[0].conv.weight.asArray(Float.self).prefix(8)))")
+        print("[ML] (py: -0.03189264 -0.09846696 -0.02305185 0.05946546 0.09903435 -0.0128215)")
+        print("[ML] f0 condnet0 b head: \(Array(f0p.condnet[0].conv.bias!.asArray(Float.self).prefix(8)))")
+        print("[ML] (py: 0.08287138 0.02207253 0.106259 -0.06652258 0.04141199 -0.01206417)")
+        print("[ML] f0 classifier type: \(type(of: f0p.classifier)) shape=\(f0p.classifier.weight.shape)")
+        if let ql = f0p.classifier as? QuantizedLinear {
+            let dq = MLX.dequantized(ql.weight, scales: ql.scales, biases: ql.biases,
+                                     groupSize: ql.groupSize, bits: ql.bits, mode: .affine)
+            print("[ML] f0 classifier dq head: \(Array(dq[0].asArray(Float.self).prefix(4)))")
+        }
+        print("[ML] final_block conv w: \(Array(model.flow.decoder.estimator.finalBlock.conv.conv.weight.asArray(Float.self).prefix(4)))")
+        print("[ML] up resnet block1 conv shape: \(ub.resnet.block1.conv.conv.weight.shape)")
+        print("[ML] up resnet block1 conv w: \(Array(ub.resnet.block1.conv.conv.weight.asArray(Float.self).prefix(4)))")
+        print("[ML] up res_conv shape: \(ub.resnet.resConv.weight.shape)")
+        print("[ML] up res_conv w: \(Array(ub.resnet.resConv.weight.asArray(Float.self).prefix(4)))")
         // All mid block conv weights
         for i in 0..<12 {
             let mbk = model.flow.decoder.estimator.midBlocks[i]
@@ -311,7 +454,7 @@ final class MLHindiTests: XCTestCase {
     }
 
     func testDecoderResnetMatchesPython() async throws {
-        let model = try await ChatterboxML.fromPretrained(Self.modelPath)
+        let model = try await ChatterboxML.fromPretrained("/tmp/chatterbox-4bit")
         let pyTokens: [Int32] = [6561, 3677, 6486, 1960, 3913, 6181, 4317, 659, 1946, 731,
                                  5401, 4269, 1761, 2222, 2388, 6258, 2360, 2519, 4632, 269,
                                  1480, 1833, 79, 916, 1882, 4595, 4314, 723, 5084, 4816,
@@ -566,7 +709,7 @@ final class MLHindiTests: XCTestCase {
     }
 
     func testRandNoiseMatchesPython() async throws {
-        let model = try await ChatterboxML.fromPretrained(Self.modelPath)
+        let model = try await ChatterboxML.fromPretrained("/tmp/chatterbox-4bit")
         let rn = model.flow.decoder.randNoise
         let head = rn[0..., 0..., 0..<4].asArray(Float.self)
         print("[ML] swift rand_noise head: \(Array(head))")
@@ -588,7 +731,7 @@ final class MLHindiTests: XCTestCase {
     }
 
     func testStageCorrelations() async throws {
-        let model = try await ChatterboxML.fromPretrained(Self.modelPath)
+        let model = try await ChatterboxML.fromPretrained("/tmp/chatterbox-4bit")
         let pyTokens: [Int32] = [6561, 3677, 6486, 1960, 3913, 6181, 4317, 659, 1946, 731,
                                  5401, 4269, 1761, 2222, 2388, 6258, 2360, 2519, 4632, 269,
                                  1480, 1833, 79, 916, 1882, 4595, 4314, 723, 5084, 4816,
@@ -666,7 +809,7 @@ final class MLHindiTests: XCTestCase {
     }
 
     func testEulerStep1MatchesPython() async throws {
-        let model = try await ChatterboxML.fromPretrained(Self.modelPath)
+        let model = try await ChatterboxML.fromPretrained("/tmp/chatterbox-4bit")
         let pyTokens: [Int32] = [6561, 3677, 6486, 1960, 3913, 6181, 4317, 659, 1946, 731,
                                  5401, 4269, 1761, 2222, 2388, 6258, 2360, 2519, 4632, 269,
                                  1480, 1833, 79, 916, 1882, 4595, 4314, 723, 5084, 4816,
@@ -773,7 +916,13 @@ final class MLHindiTests: XCTestCase {
 
     func testFullGenerateToWav() async throws {
         let model = try await ChatterboxML.fromPretrained(Self.modelPath)
-        let wav = model.generate(text: "नमस्ते, मैं हिंदी में बोल रहा हूँ।", language: "hi")
+        let toks = model.speechTokens(text: "नमस्ते, मैं हिंदी में बोल रहा हूँ।", language: "hi")
+        let ref = S3RefML(promptToken: model.conds.genPromptToken,
+                          promptTokenLen: model.conds.genPromptTokenLen,
+                          promptFeat: model.conds.genPromptFeat,
+                          embedding: model.conds.genEmbedding)
+        let mel = model.flow.inference(token: toks, ref: ref, finalize: false)
+        let wav = model.mel2wav.generate(mel)
         print("[ML] wav samples: \(wav.count)")
         XCTAssertGreaterThan(wav.count, 10000, "should produce >10000 samples (~0.4s)")
         let peak = wav.map { abs($0) }.max() ?? 0
@@ -803,5 +952,66 @@ final class MLHindiTests: XCTestCase {
         let wavData = writeWavHeader(pcm, sampleRate: 24000)
         try wavData.write(to: wavURL)
         print("[ML] wrote \(wavURL.path) (\(wavData.count) bytes)")
+    }
+
+    func testWavOnFixedMel() async throws {
+        let model = try await ChatterboxML.fromPretrained(Self.modelPath)
+        guard let p = ProcessInfo.processInfo.environment["SWIFT_MEL_PATH"],
+              FileManager.default.fileExists(atPath: p) else { return }
+        let data = try Data(contentsOf: URL(fileURLWithPath: p))
+        let floats = data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+        let mel = MLXArray(floats).reshaped([1, 80, 106])
+        let wav = model.mel2wav.generate(mel)
+        let peak = wav.map { abs($0) }.max() ?? 0
+        print("[ML] swift wav on fixed mel: count=\(wav.count) peak=\(peak)")
+        print("[ML] (python decode peak was 0.57184327)")
+        XCTAssertTrue(peak > 0.2, "should be loud")
+    }
+
+    func testHindiSameSentenceToWav() async throws {
+        let model = try await ChatterboxML.fromPretrained(Self.modelPath)
+        // Exact same text as the Python reference.
+        let text = "नमस्ते, मैं हिंदी में बोल रहा हूँ।"
+        let ids = model.tokenizer!.tokenize(text: text, languageID: "hi")
+        let textTokens = MLXArray(ids.map { Int32($0) }).reshaped([1, -1])
+        let cond = T3MLCond(speakerEmb: model.conds.t3SpeakerEmb,
+                            emotionAdv: model.conds.t3EmotionAdv,
+                            condPromptSpeechTokens: model.conds.t3CondPromptSpeechTokens)
+        // Cap at 55 tokens (Python reference produced 56).
+        let toks = model.t3.inference(cond: cond, textTokens: textTokens,
+                                      maxNewTokens: 55, temperature: 0.8)
+        let flat = toks.asArray(Int32.self)
+        print("[ML] swift tokens count=\(flat.count) hasEOS=\(flat.contains(6562))")
+        var tokData = Data()
+        for v in flat { var i = v; tokData.append(Data(bytes: &i, count: 4)) }
+        try tokData.write(to: URL(fileURLWithPath: "/tmp/swift_tokens.raw"))
+        // Mel length from the same tokens.
+        let ref2 = S3RefML(promptToken: model.conds.genPromptToken,
+                           promptTokenLen: model.conds.genPromptTokenLen,
+                           promptFeat: model.conds.genPromptFeat,
+                           embedding: model.conds.genEmbedding)
+        let mel2 = model.flow.inference(token: toks, ref: ref2, finalize: false)
+        print("[ML] swift mel from same tokens: \(mel2.shape)")
+        let wav = model.mel2wav.generate(mel2)
+        let peak = wav.map { abs($0) }.max() ?? 0
+        let rms = sqrt(wav.reduce(0) { $0 + $1 * $1 } / Float(max(wav.count, 1)))
+        print("[ML] swift same-sentence: samples=\(wav.count) peak=\(peak) rms=\(rms)")
+        print("[ML] (python: 59520 samples, peak 0.686)")
+        var pcm = Data()
+        for s in wav {
+            var v = Int16(max(-1, min(1, s)) * 32767)
+            pcm.append(Data(bytes: &v, count: 2))
+        }
+        var out = Data()
+        func put(_ s: String) { out.append(s.data(using: .ascii)!) }
+        func put32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { out.append(Data($0)) } }
+        func put16(_ v: UInt16) { withUnsafeBytes(of: v.littleEndian) { out.append(Data($0)) } }
+        put("RIFF"); put32(UInt32(36 + pcm.count)); put("WAVE")
+        put("fmt "); put32(16); put16(1); put16(1); put32(24000)
+        put32(UInt32(24000 * 2)); put16(2); put16(16)
+        put("data"); put32(UInt32(pcm.count)); out.append(pcm)
+        try out.write(to: URL(fileURLWithPath: "/tmp/swift_hindi_same.wav"))
+        print("[ML] wrote /tmp/swift_hindi_same.wav")
+        XCTAssertTrue(peak > 0.05)
     }
 }

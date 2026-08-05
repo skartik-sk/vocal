@@ -273,7 +273,6 @@ final class MLConditionalDecoder: Module {
             let maskDown = masks[masks.count - 1]
             h = db.resnet(h, mask: maskDown, timeEmb: tEmb)
             h = h.transposed(0, 2, 1)
-            let maskT = maskDown[0..., 0..<1, 0...].squeezed(axis: 1)
             for tb in db.transformerBlocks { h = tb(h, mask: nil) }
             h = h.transposed(0, 2, 1)
             hiddens.append(h)
@@ -309,6 +308,15 @@ final class MLConditionalDecoder: Module {
         h = finalProj(h * maskUp)
         return h * mask
     }
+}
+
+/// Convert a (B,1,T) length mask to an additive (B,T,T) attention bias
+/// (matches Python's add_optional_chunk_mask + mask_to_bias, full context).
+func maskToBias(_ mask: MLXArray, T: Int, dtype: DType) -> MLXArray {
+    // mask: (B,1,T); broadcast to (B,T,T) as bool then (1 - mask) * -1e10
+    let boolMask = mask .> 0
+    let expanded = broadcast(boolMask, to: [mask.dim(0), T, mask.dim(2)])
+    return ((1 - expanded.asType(.float32)) * -1e10).asType(dtype)
 }
 
 // MARK: - CFM (CausalConditionalCFM, 10-step Euler with CFG)
