@@ -84,10 +84,9 @@ vocal/
 │   └── bin/vocal_mcp.rs  MCP server — exposes Vocal as an agent-callable `speak` tool
 ├── src-tauri/            Tauri v2 “Vocal Manager” desktop GUI
 │   ├── src/              Rust commands the frontend calls
+│   ├── frontend/         Manager UI (vanilla HTML / CSS / JS) — Manage · Test · Logs · MCP · Settings
 │   ├── capabilities/     Tauri permission surface
 │   └── icons/            app icon (png / ico / icns)
-├── frontend/             Manager UI (vanilla HTML / CSS / JS)
-│   └── tabs: Manage · Test · Logs · MCP · Settings
 ├── engine/               Swift MLX TTS engine (SwiftPM package)
 │   └── Sources/
 │       ├── Qwen3TTS/     multilingual Qwen3-TTS (12 langs, 9 built-in voices)
