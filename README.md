@@ -10,6 +10,7 @@
 </p>
 
 <p align="center">
+  <a href="https://skartik-sk.github.io/vocal/">🌐 Website</a> ·
   <a href="#demo">Demo</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#project-structure">Structure</a> ·
