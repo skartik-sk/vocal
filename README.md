@@ -36,17 +36,19 @@ Vocal ships **two on-device TTS engines**. Hear the same line rendered by each �
 
 **English** — *"Hello! I'm Vocal, an on-device text-to-speech engine that lives right inside your Mac's Services menu. No cloud, no internet — your words never leave your machine."*
 
-- **Chatterbox** — Vocal's flagship engine (the focus of active development):
-  <audio controls src="assets/demo/chatterbox-english.wav"></audio>
-- **Qwen3-TTS** — multilingual (12 languages):
-  <audio controls src="assets/demo/qwen-english.wav"></audio>
+**Chatterbox** — Vocal's flagship engine
+<audio controls src="https://raw.githubusercontent.com/skartik-sk/vocal/main/assets/demo/chatterbox-english.wav"></audio>
+
+**Qwen3-TTS** — multilingual (12 languages)
+<audio controls src="https://raw.githubusercontent.com/skartik-sk/vocal/main/assets/demo/qwen-english.wav"></audio>
 
 **हिन्दी (Hindi)** — *"नमस्ते! मैं वोकल हूँ, बिना इंटरनेट के आपके मैक पर बोलने वाला एक लोकल इंजन।"*
 
-- **Chatterbox** *(English-focused model, so Hindi is accented)*:
-  <audio controls src="assets/demo/chatterbox-hindi.wav"></audio>
-- **Qwen3-TTS**:
-  <audio controls src="assets/demo/qwen-hindi.wav"></audio>
+**Chatterbox** *(English-focused model, so Hindi is accented)*
+<audio controls src="https://raw.githubusercontent.com/skartik-sk/vocal/main/assets/demo/chatterbox-hindi.wav"></audio>
+
+**Qwen3-TTS**
+<audio controls src="https://raw.githubusercontent.com/skartik-sk/vocal/main/assets/demo/qwen-hindi.wav"></audio>
 
 ## How it works
 
