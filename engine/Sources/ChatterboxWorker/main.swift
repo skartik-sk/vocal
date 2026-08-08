@@ -77,8 +77,11 @@ struct ChatterboxWorker {
         setbuf(stdout, nil) // unbuffered stdout so the Rust host sees logs immediately
 
         let env = ProcessInfo.processInfo.environment
+        // Local snapshot dir of mlx-community/chatterbox-turbo-4bit (HF cache). The Rust
+        // host always sets CHATTERBOX_MODEL_PATH from vocal.config; this is only a dev
+        // fallback — replace <snapshot> with your downloaded snapshot hash.
         let modelPath = env["CHATTERBOX_MODEL_PATH"]
-            ?? "/Users/singupallikartik/.cache/huggingface/hub/models--mlx-community--chatterbox-turbo-4bit/snapshots/c63817725071d7b5269c7b558772d6e8cbf59cec"
+            ?? "~/.cache/huggingface/hub/models--mlx-community--chatterbox-turbo-4bit/snapshots/<snapshot>"
 
         print("[ChatterboxWorker] 🚀 Booting native Chatterbox engine...")
 

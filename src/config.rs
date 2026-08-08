@@ -1,10 +1,11 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// The baked project root. Used by [`VocalConfig::default`] so both the Services
-/// host and the Tauri manager resolve an absolute `vocal.config` path regardless
-/// of the process cwd (macOS Services launches with an unpredictable cwd).
-pub const VOCAL_ROOT: &str = "/Users/singupallikartik/Developer/fun-projects/vocal";
+/// The project root, resolved at compile time to this crate's directory. Used by
+/// [`VocalConfig::default`] and the Tauri manager to locate `vocal.config`,
+/// `target/release/vocal_mcp`, etc. regardless of process cwd (macOS Services
+/// launches with an unpredictable cwd).
+pub const VOCAL_ROOT: &str = env!("CARGO_MANIFEST_DIR");
 
 /// Runtime configuration for Vocal. Loaded from a gitignored `vocal.config`
 /// (`key = value` lines); falls back to baked-in defaults. Rust is the single
@@ -40,7 +41,8 @@ impl Default for VocalConfig {
         let home = VOCAL_ROOT;
         Self {
             backend: "native_chatterbox".into(),
-            model_path: "/Users/singupallikartik/Developer/fun-projects/Qwen3-TTS-12Hz-0.6B-CustomVoice-4bit".into(),
+            // No baked default — set `model_path` in vocal.config (see vocal.config.example).
+            model_path: String::new(),
             engine_dir: format!("{home}/engine"),
             speaker: "Dylan".into(),
             language: "hi".into(),
@@ -52,7 +54,8 @@ impl Default for VocalConfig {
             chatterbox_worker: format!("{home}/scripts/chatterbox_worker.py"),
             chatterbox_model: "mlx-community/chatterbox-turbo-4bit".into(),
             ref_audio: None,
-            chatterbox_model_path: "/Users/singupallikartik/.cache/huggingface/hub/models--mlx-community--chatterbox-4bit/snapshots/f1d7b9696e1b6242e64eb8c4a823b6d1a50425a8".into(),
+            // No baked default — set `chatterbox_model_path` in vocal.config (HF cache snapshot).
+            chatterbox_model_path: String::new(),
         }
     }
 }

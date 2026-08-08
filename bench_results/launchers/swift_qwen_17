@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-cd "/Users/singupallikartik/Developer/fun-projects/vocal/engine"
-export VOCAL_MODEL_PATH="/Users/singupallikartik/Developer/fun-projects/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit"
-export VOCAL_SPEAKER="Dylan"
-export VOCAL_LANGUAGE="English"
-export VOCAL_INSTRUCT="be very Fast, Serious, and not skip any word like you are reading audiobook"
-export VOCAL_TEMPERATURE="0.8"
-exec "/Users/singupallikartik/Developer/fun-projects/vocal/engine/.build/release/VocalWorker"

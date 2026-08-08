@@ -37,6 +37,10 @@ public struct LlamaT3Config {
     public let speechTokensDictSize: Int
     public let startSpeechToken: Int
     public let stopSpeechToken: Int
+    // Text-token bookends mlx-audio wraps around the BPE tokens in generate():
+    // [SOT, ...text..., EOT]. Defaults 255 / 0 (T3Config, used by multilingual).
+    public let startTextToken: Int
+    public let stopTextToken: Int
     public let speakerEmbedSize: Int
     public let speechCondPromptLen: Int
     public let quantization: ChatterboxQuantization?
@@ -49,6 +53,7 @@ public struct LlamaT3Config {
         mlpBias: Bool = false, textTokensDictSize: Int = 2454,
         speechTokensDictSize: Int = 8194, startSpeechToken: Int = 6561,
         stopSpeechToken: Int = 6562, speakerEmbedSize: Int = 256,
+        startTextToken: Int = 255, stopTextToken: Int = 0,
         speechCondPromptLen: Int = 150
     ) {
         self.hiddenSize = hiddenSize
@@ -73,6 +78,8 @@ public struct LlamaT3Config {
         self.speechTokensDictSize = speechTokensDictSize
         self.startSpeechToken = startSpeechToken
         self.stopSpeechToken = stopSpeechToken
+        self.startTextToken = startTextToken
+        self.stopTextToken = stopTextToken
         self.speakerEmbedSize = speakerEmbedSize
         self.speechCondPromptLen = speechCondPromptLen
         self.quantization = ChatterboxQuantization(groupSize: 64, bits: 4, mode: "affine")

@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-cd "/Users/singupallikartik/Developer/fun-projects/vocal/engine"
-export CHATTERBOX_MODEL_PATH="/Users/singupallikartik/.cache/huggingface/hub/models--mlx-community--chatterbox-turbo-4bit/snapshots/c63817725071d7b5269c7b558772d6e8cbf59cec"
-exec "/Users/singupallikartik/Developer/fun-projects/vocal/engine/.build/release/ChatterboxWorker"

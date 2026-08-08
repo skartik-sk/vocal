@@ -75,8 +75,11 @@ struct VocalWorker {
         setbuf(stdout, nil) // unbuffered stdout so the Rust host sees logs immediately
 
         let env = ProcessInfo.processInfo.environment
+        // Local dir of the Qwen3-TTS 0.6B CustomVoice 4-bit model. The Rust host always
+        // sets VOCAL_MODEL_PATH from vocal.config; this is only a dev fallback — point it
+        // at your own downloaded model dir.
         let modelPath = env["VOCAL_MODEL_PATH"]
-            ?? "/Users/singupallikartik/Developer/fun-projects/Qwen3-TTS-12Hz-0.6B-CustomVoice-4bit"
+            ?? "~/models/Qwen3-TTS-12Hz-0.6B-CustomVoice-4bit"
         let speaker = env["VOCAL_SPEAKER"] ?? "Aiden"
         let language = env["VOCAL_LANGUAGE"] ?? "english"
         // Emotion/style guidance for CustomVoice mode (e.g. "calm, observational").

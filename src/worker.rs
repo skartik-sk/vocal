@@ -37,7 +37,7 @@ pub fn launch_spec(cfg: &VocalConfig) -> WorkerLaunch {
                     ),
                     (
                         "CHATTERBOX_ML_MAX_TOKENS".into(),
-                        "300".into(),
+                        "1200".into(),
                     ),
                     (
                         "CHATTERBOX_ML_MEM_MB".into(),

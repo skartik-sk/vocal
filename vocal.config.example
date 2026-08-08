@@ -1,23 +1,27 @@
-# Vocal runtime config (copy to vocal.config and edit). vocal.config is gitignored.
+# Vocal runtime config. Copy to `vocal.config` and edit for your machine.
+# (vocal.config is gitignored — it holds absolute paths and is machine-specific.)
+#
 # macOS launches the Services app with an unpredictable cwd, so use ABSOLUTE paths.
+# Replace <you> with your username and <snapshot> with your local HF cache hash.
+#
 # backend: "swift" (Qwen3-TTS) | "chatterbox" (Python mlx-audio) | "native_chatterbox" (pure Swift).
 
 backend = swift
 
 # --- swift / Qwen3-TTS backend ---
-model_path = /Users/singupallikartik/Developer/fun-projects/Qwen3-TTS-12Hz-0.6B-CustomVoice-4bit
-engine_dir = /Users/singupallikartik/Developer/fun-projects/vocal/engine
+model_path = /Users/<you>/Developer/Qwen3-TTS-12Hz-0.6B-CustomVoice-4bit
+engine_dir = /Users/<you>/Developer/vocal/engine
 speaker = Dylan
 language = English
 instruct = be very Fast, Serious, and not skip any word like you are reading audiobook
 temperature = 0.8
 
 # --- chatterbox / mlx-audio backend (set backend = chatterbox to use) ---
-python_bin = /Users/singupallikartik/Developer/fun-projects/vocal/src/.venv/bin/python
-chatterbox_worker = /Users/singupallikartik/Developer/fun-projects/vocal/scripts/chatterbox_worker.py
+python_bin = /Users/<you>/Developer/vocal/src/.venv/bin/python
+chatterbox_worker = /Users/<you>/Developer/vocal/scripts/chatterbox_worker.py
 chatterbox_model = mlx-community/chatterbox-turbo-4bit
 # ref_audio = /absolute/path/to/voice.wav   # optional voice cloning
 
 # --- native_chatterbox backend (pure Swift, no Python; set backend = native_chatterbox) ---
 # Local dir holding config.json + model.safetensors + conds.safetensors (the HF cache snapshot).
-chatterbox_model_path = /Users/<you>/.cache/huggingface/hub/models--mlx-community--chatterbox-turbo-4bit/snapshots/<hash>
+chatterbox_model_path = /Users/<you>/.cache/huggingface/hub/models--mlx-community--chatterbox-turbo-4bit/snapshots/<snapshot>

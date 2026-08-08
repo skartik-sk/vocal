@@ -99,10 +99,15 @@ impl VocalMcp {
             }
         };
 
-        // Feed the text, then close stdin (EOF) so the worker generates, plays, exits.
+        // Feed the text as sentences (one per line), then close stdin (EOF) so
+        // the worker generates and plays them back-to-back, then exits.
+        // Mirroring src/main.rs — each line is generated under its own
+        // CHATTERBOX_ML_MAX_TOKENS cap, so long paragraphs don't truncate.
         if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(args.text.as_bytes()).await;
-            let _ = stdin.write_all(b"\n").await;
+            for sentence in vocal::split_paragraph(&args.text) {
+                let _ = stdin.write_all(sentence.as_bytes()).await;
+                let _ = stdin.write_all(b"\n").await;
+            }
             // stdin dropped here → pipe closes → EOF.
         }
 

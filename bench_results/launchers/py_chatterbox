@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-cd "/Users/singupallikartik/Developer/fun-projects/vocal"
-export CHATTERBOX_MODEL="mlx-community/chatterbox-turbo-4bit"
-exec "/Users/singupallikartik/Developer/fun-projects/vocal/src/.venv/bin/python" "/Users/singupallikartik/Developer/fun-projects/vocal/scripts/chatterbox_worker.py"

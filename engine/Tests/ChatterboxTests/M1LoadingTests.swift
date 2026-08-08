@@ -9,7 +9,7 @@ import MLX
 final class M1LoadingTests: XCTestCase {
     // The cached chatterbox-turbo-4bit snapshot. Override via CHATTERBOX_MODEL_PATH.
     private static let modelPath = ProcessInfo.processInfo.environment["CHATTERBOX_MODEL_PATH"]
-        ?? "/Users/singupallikartik/.cache/huggingface/hub/models--mlx-community--chatterbox-turbo-4bit/snapshots/c63817725071d7b5269c7b558772d6e8cbf59cec"
+        ?? "~/.cache/huggingface/hub/models--mlx-community--chatterbox-turbo-4bit/snapshots/<snapshot>"
 
     private var files: ModelFiles { ModelFiles(Self.modelPath) }
 

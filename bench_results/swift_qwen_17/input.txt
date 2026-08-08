@@ -1,4 +1,0 @@
-This is Swift Qwen 1.7B speaking.
-This is a test of the voice engine.
-I hope you can hear me clearly.
-Testing one two three.

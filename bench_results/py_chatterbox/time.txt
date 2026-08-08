@@ -1,28 +1,0 @@
-Fetching 9 files:   0%|          | 0/9 [00:00<?, ?it/s]Fetching 9 files: 100%|██████████| 9/9 [00:00<00:00, 1032.23it/s]
-[transformers] You are using a model of type `chatterbox_turbo` to instantiate a model of type ``. This may be expected if you are loading a checkpoint that shares a subset of the architecture (e.g., loading a `sam2_video` checkpoint into `Sam2Model`), but is otherwise not supported and can yield errors. Please verify that the checkpoint is compatible with the model you are instantiating.
-Generating speech tokens:   0%|          | 0/1200 [00:00<?, ?it/s]Generating speech tokens:   0%|          | 1/1200 [00:00<06:40,  2.99it/s]Generating speech tokens:   1%|          | 10/1200 [00:00<00:41, 29.02it/s]Generating speech tokens:   2%|▏         | 20/1200 [00:00<00:23, 49.67it/s]Generating speech tokens:   2%|▎         | 30/1200 [00:00<00:18, 64.17it/s]Generating speech tokens:   3%|▎         | 40/1200 [00:00<00:15, 73.67it/s]Generating speech tokens:   4%|▍         | 50/1200 [00:00<00:14, 80.71it/s]Generating speech tokens:   5%|▍         | 59/1200 [00:00<00:18, 61.85it/s]
-  0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 541.55it/s]
-Generating speech tokens:   0%|          | 0/1200 [00:00<?, ?it/s]Generating speech tokens:   0%|          | 1/1200 [00:00<06:13,  3.21it/s]Generating speech tokens:   1%|          | 10/1200 [00:00<00:39, 29.85it/s]Generating speech tokens:   2%|▏         | 20/1200 [00:00<00:23, 50.32it/s]Generating speech tokens:   2%|▎         | 30/1200 [00:00<00:18, 64.51it/s]Generating speech tokens:   3%|▎         | 40/1200 [00:00<00:15, 74.27it/s]Generating speech tokens:   4%|▍         | 50/1200 [00:00<00:14, 80.36it/s]Generating speech tokens:   4%|▍         | 53/1200 [00:00<00:19, 60.21it/s]
-  0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 565.42it/s]
-Generating speech tokens:   0%|          | 0/1200 [00:00<?, ?it/s]Generating speech tokens:   0%|          | 1/1200 [00:00<06:14,  3.21it/s]Generating speech tokens:   1%|          | 10/1200 [00:00<00:40, 29.54it/s]Generating speech tokens:   2%|▏         | 20/1200 [00:00<00:23, 50.34it/s]Generating speech tokens:   2%|▎         | 30/1200 [00:00<00:18, 64.42it/s]Generating speech tokens:   3%|▎         | 40/1200 [00:00<00:15, 74.27it/s]Generating speech tokens:   4%|▎         | 43/1200 [00:00<00:20, 55.51it/s]
-  0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 535.77it/s]
-Generating speech tokens:   0%|          | 0/1200 [00:00<?, ?it/s]Generating speech tokens:   0%|          | 1/1200 [00:00<05:58,  3.35it/s]Generating speech tokens:   1%|          | 9/1200 [00:00<00:43, 27.34it/s]Generating speech tokens:   2%|▏         | 19/1200 [00:00<00:23, 49.30it/s]Generating speech tokens:   2%|▏         | 29/1200 [00:00<00:18, 63.60it/s]Generating speech tokens:   3%|▎         | 35/1200 [00:00<00:22, 50.82it/s]
-  0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 596.80it/s]
-       18.12 real         3.20 user         1.82 sys
-          1131806720  maximum resident set size
-                   0  average shared memory size
-                   0  average unshared data size
-                   0  average unshared stack size
-               87024  page reclaims
-                2350  page faults
-                   0  swaps
-                   0  block input operations
-                   0  block output operations
-                  23  messages sent
-                  60  messages received
-                   0  signals received
-                2988  voluntary context switches
-               40612  involuntary context switches
-         32668002872  instructions retired
-         12446297950  cycles elapsed
-          2482295488  peak memory footprint

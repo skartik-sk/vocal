@@ -156,7 +156,10 @@ public final class ChatterboxML: Module {
     func speechTokens(text: String, language: String = "hi",
                       temperature: Float = 0.8) -> MLXArray {
         guard let tok = tokenizer else { fatalError("no tokenizer") }
-        let ids = tok.tokenize(text: text, languageID: language)
+        var ids = tok.tokenize(text: text, languageID: language)
+        if ProcessInfo.processInfo.environment["CHATTERBOX_NO_TEXT_WRAP"] == nil {
+            ids = [config.startTextToken] + ids + [config.stopTextToken]
+        }
         let textTokens = MLXArray(ids.map { Int32($0) }).reshaped([1, -1])
         let cond = T3MLCond(
             speakerEmb: conds.t3SpeakerEmb,
@@ -169,19 +172,51 @@ public final class ChatterboxML: Module {
     public func generate(text: String, language: String = "hi", temperature: Float = 0.8,
                          maxSpeechTokens: Int = 300) -> [Float] {
         guard let tok = tokenizer else { return [] }
-        let ids = tok.tokenize(text: text, languageID: language)
-        let textTokens = MLXArray(ids.map { Int32($0) }).reshaped([1, -1])
+        var textIds = tok.tokenize(text: text, languageID: language)
+        // Bookend the text with start/end-of-text markers, mirroring mlx-audio's
+        // generate() which wraps text_tokens as [SOT, ...text..., EOT] before T3
+        // (start_text_token=255, stop_text_token=0). Without the trailing EOT before
+        // the BOS speech token the model gets no clean "text ended" cue, so it fails
+        // to emit EOS and runs on, appending a garbage tail — the extra garbled word
+        // at the end of every line. CHATTERBOX_NO_TEXT_WRAP=1 disables it for A/B.
+        let textWrap = ProcessInfo.processInfo.environment["CHATTERBOX_NO_TEXT_WRAP"] == nil
+        if textWrap {
+            textIds = [config.startTextToken] + textIds + [config.stopTextToken]
+        }
+        let textTokens = MLXArray(textIds.map { Int32($0) }).reshaped([1, -1])
         let cond = T3MLCond(
             speakerEmb: conds.t3SpeakerEmb,
             emotionAdv: conds.t3EmotionAdv,
             condPromptSpeechTokens: conds.t3CondPromptSpeechTokens)
         let toks = t3.inference(cond: cond, textTokens: textTokens,
                                 maxNewTokens: maxSpeechTokens, temperature: temperature)
+        if let d = ProcessInfo.processInfo.environment["CHATTERBOX_DUMP"] {
+            let raw = (0 ..< toks.dim(1)).map { Int(toks[0, $0].item(Int32.self)) }
+            let eosAt = raw.enumerated().filter { $0.element == config.stopSpeechToken }.map { $0.offset }
+            print("[ChatterboxML] DUMP textWrap=\(textWrap) textTokIn=\(textIds.count) rawSpeechLen=\(raw.count) eosAt=\(eosAt) head=\(raw.prefix(8)) tail=\(raw.suffix(8))")
+            try? raw.map(String.init).joined(separator: ",")
+                .write(toFile: "\(d)/ml_t3_raw_tokens_\(textWrap ? "wrap" : "nowrap").txt",
+                       atomically: true, encoding: .utf8)
+        }
+        // Mirror mlx-audio's drop_invalid_tokens: keep only real speech tokens
+        // between the first SOS and first EOS, and drop any residual special
+        // tokens (>= 6561). The flow's input embedding is only 6561 wide, so
+        // leaving SOS/EOS in would clip them to a real codebook entry and
+        // decode into an extra garbled word at the end of the clip.
+        var ids = (0 ..< toks.dim(1)).map { Int(toks[0, $0].item(Int32.self)) }
+        if let sosIdx = ids.firstIndex(of: config.startSpeechToken) {
+            ids.removeFirst(sosIdx + 1)
+        }
+        if let eosIdx = ids.firstIndex(of: config.stopSpeechToken) {
+            ids = Array(ids[..<eosIdx])
+        }
+        ids = ids.filter { $0 < config.startSpeechToken }
+        let cleaned = MLXArray(ids.map { Int32($0) }).reshaped([1, -1])
         let ref = S3RefML(promptToken: conds.genPromptToken,
                           promptTokenLen: conds.genPromptTokenLen,
                           promptFeat: conds.genPromptFeat,
                           embedding: conds.genEmbedding)
-        let mel = flow.inference(token: toks, ref: ref, finalize: false)   // (1, 80, T)
+        let mel = flow.inference(token: cleaned, ref: ref, finalize: true)   // (1, 80, T)
         let wav = mel2wav.generate(mel)                        // [Float] 24kHz
         return wav
     }

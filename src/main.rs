@@ -82,7 +82,7 @@ declare_class!(
             vlog!("Successfully grabbed text from macOS:");
             vlog!("-> {}\n", final_rust_string);
 
-            let sentence_queue = split_line_form_para(&final_rust_string);
+            let sentence_queue = vocal::split_paragraph(&final_rust_string);
             vlog!("🔪 Sliced into {} sentences:", sentence_queue.len());
 
             thread::spawn(move || {
@@ -141,13 +141,6 @@ declare_class!(
         }
     }
 );
-
-fn split_line_form_para(data: &String) -> Vec<String> {
-    data.split_terminator(&['.', '?', '!'][..])
-        .map(|s| s.trim().to_string()) // Convert to String and strip extra spaces
-        .filter(|s| !s.is_empty()) // Ignore empty chunks
-        .collect()
-}
 
 fn main() {
     vlog!(
