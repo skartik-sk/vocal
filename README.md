@@ -29,7 +29,7 @@ tool so AI agents can speak too.
 - 🌐 **Multilingual** — 12 languages (English, Hindi, Chinese, Japanese, Korean, French, German, Spanish, Italian, Portuguese, Russian + dialects) via Qwen3-TTS.
 - 🖱️ **Three ways in** — macOS Service (right-click), the Vocal Manager desktop app, or an MCP `speak` tool for agents.
 - ⚡ **Streaming + low memory** — the model loads once and is freed the instant it goes idle, so it sits quietly until you need it.
-- 🎚️ **Pluggable backends** — Qwen3-TTS (Swift), Chatterbox (Python mlx-audio), or an experimental pure-Swift Chatterbox.
+- 🎚️ **Pluggable backends** — a native Swift/MLX Chatterbox (the active backend), Qwen3-TTS (Swift, 12 languages), or Chatterbox via Python mlx-audio.
 
 ## Demo
 
@@ -107,44 +107,57 @@ vocal/
 
 ### 1. Download a model
 
-Vocal defaults to the Qwen3-TTS **CustomVoice 4-bit** model (~808 MB) from the
-`mlx-community` / `AtomGradient` HuggingFace repos. Pull one, e.g.:
+Pick the backend you want as the default and pull its model:
 
-```bash
-huggingface-cli download AtomGradient/Qwen3-TTS-0.6B-CustomVoice-4bit-pruned-vocab-lite \
-  --local-dir ~/models/Qwen3-TTS-CustomVoice-4bit
-```
+- **`native_chatterbox`** (the active backend — multilingual English + Hindi, no
+  Python): the `chatterbox-4bit` snapshot, which `huggingface-cli` caches under
+  `~/.cache/huggingface/hub/`:
+  ```bash
+  huggingface-cli download mlx-community/chatterbox-4bit
+  ```
+- **`swift`** (Qwen3-TTS — 12 languages, 9 voices):
+  ```bash
+  huggingface-cli download AtomGradient/Qwen3-TTS-0.6B-CustomVoice-4bit-pruned-vocab-lite \
+    --local-dir ~/models/Qwen3-TTS-CustomVoice-4bit
+  ```
 
 ### 2. Configure
 
-Copy the example config and point it at your model + engine directories:
+Copy the example config, set `backend`, and point it at your model:
 
 ```bash
 cp vocal.config.example vocal.config
-# then edit vocal.config: model_path, engine_dir, speaker, language
+# then edit vocal.config:
+#   backend = native_chatterbox
+#   chatterbox_model_path = …/models--mlx-community--chatterbox-4bit/snapshots/<hash>
+#   (for backend = swift: model_path, engine_dir, speaker, language)
 ```
 
 `vocal.config` is gitignored — it holds machine-specific absolute paths.
 
-### 3. Build the Swift engine
+### 3. Build the self-contained app
 
 ```bash
-cd engine
-swift build -c release           # builds VocalWorker + ChatterboxWorker + …
-# the engine needs default.metallib next to the package:
-cp .build/release/default.metallib .   # or copy from /usr/lib
+cargo install cargo-bundle     # one-time prerequisite
+./scripts/build-app.sh ~/.cache/huggingface/hub/models--mlx-community--chatterbox-4bit/snapshots/<hash>
 ```
 
-### 4. Build & install the Rust host (the Service)
+This compiles the Swift MLX engine and the Rust host, runs `cargo bundle`, and
+copies the worker binary, `default.metallib`, the `chatterbox-4bit` model, and
+the MCP server into `Vocal.app`. The result is a **self-contained ~615 MB app**
+that runs with no repo, no build cache, and no HF cache left on disk — everything
+it needs (right-click Service **and** the agent `speak` tool) lives inside the
+bundle. (Find the `<hash>` under the `snapshots/` dir from step 1.)
+
+### 4. Install & register the Service
 
 ```bash
-cargo build --release
-cargo bundle                      # produces Vocal.app with the Services item
-# drag Vocal.app into /Applications, then log out/in (or run:
-# /System/Library/CoreServices/pssDiagnose … ) so macOS picks up the Service
+# drag target/release/bundle/osx/Vocal.app into /Applications, then refresh:
+/System/Library/CoreServices/pbs -flush     # or just log out & back in
 ```
 
 Now select text anywhere → right-click → **Services → Speak with Vocal**.
+(Live logs: `tail -f /tmp/vocal.log`.)
 
 ### 5. (Optional) Run the Vocal Manager GUI
 
@@ -159,9 +172,9 @@ Set `backend` in `vocal.config`:
 
 | `backend`            | Engine                         | Needs Python? | Notes                                         |
 |----------------------|--------------------------------|---------------|-----------------------------------------------|
-| `swift` *(default)*  | Qwen3-TTS (Swift/MLX)          | no            | Multilingual, 9 voices, fast first-audio.     |
+| `native_chatterbox`  | Chatterbox (Swift/MLX)         | no            | **Active backend.** Loads the 4-bit model natively; English + Hindi. |
+| `swift`              | Qwen3-TTS (Swift/MLX)          | no            | Multilingual (12 langs), 9 voices, fast first-audio. |
 | `chatterbox`         | Chatterbox-Turbo (mlx-audio)   | yes           | Python `mlx-audio`; expressive, voice-cloning.|
-| `native_chatterbox`  | Chatterbox (pure-Swift port)   | no            | Experimental work-in-progress port.           |
 
 Built-in Qwen3-TTS voices: `Aiden`, `Ryan`, `Serena`, `Vivian`, `Sohee`,
 `Ono_anna`, `Uncle_fu`, `Eric`, `Dylan`.

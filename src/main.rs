@@ -89,7 +89,7 @@ declare_class!(
                 use std::io::Write;
 
                 // Single source of truth: vocal.config (gitignored) + baked-in defaults.
-                let cfg = VocalConfig::load(std::path::Path::new("vocal.config"));
+                let cfg = VocalConfig::load_default();
                 vlog!("🤖 Booting TTS worker (backend={})...", cfg.backend);
 
                 // Build the worker Command from the active backend (swift | chatterbox).
@@ -148,6 +148,17 @@ fn main() {
         std::process::id()
     );
     vlog!("🚀 Starting Vocal background service...");
+
+    // Boot diagnostic: log where assets resolve from. In a .app bundle these
+    // point at Contents/Resources/; in dev (`cargo run`) at the repo checkout.
+    // Confirms the current_exe-based bundle detection works at runtime.
+    let boot = VocalConfig::load_default();
+    vlog!(
+        "📦 resolving from: worker={}, cwd={}, model={}",
+        boot.chatterbox_binary().display(),
+        boot.engine_cwd().display(),
+        boot.native_model_dir()
+    );
 
     unsafe {
         // 1. Get the shared NSApplication instance (this represents our Mac app)

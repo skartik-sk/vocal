@@ -1,6 +1,11 @@
 # Rust build output
 /target/
 
+# Built app bundles / packaging output (self-contained .app carries the model)
+*.app
+/dist/
+/bin/
+
 # macOS
 .DS_Store
 

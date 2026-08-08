@@ -7,6 +7,28 @@ use std::path::{Path, PathBuf};
 /// launches with an unpredictable cwd).
 pub const VOCAL_ROOT: &str = env!("CARGO_MANIFEST_DIR");
 
+/// True when the running executable lives inside a `.app` bundle
+/// (`…/Vocal.app/Contents/MacOS/<exe>`), i.e. we're the installed app rather
+/// than a dev `cargo run`. macOS resolves `current_exe()` canonically even when
+/// launched via the Services menu / launchd (whose cwd is unpredictable).
+fn is_bundled() -> bool {
+    std::env::current_exe()
+        .map(|p| p.to_string_lossy().contains(".app/Contents/MacOS/"))
+        .unwrap_or(false)
+}
+
+/// `Contents/Resources/` of the running `.app`, or `None` in dev mode. A bundled
+/// Vocal resolves its worker binary, `default.metallib`, and model dir relative
+/// to this — so it runs with no repo on disk.
+fn bundle_resources() -> Option<PathBuf> {
+    if !is_bundled() {
+        return None;
+    }
+    let exe = std::env::current_exe().ok()?;
+    let contents = exe.parent()?.parent()?; // …/Contents/MacOS → …/Contents
+    Some(contents.join("Resources"))
+}
+
 /// Runtime configuration for Vocal. Loaded from a gitignored `vocal.config`
 /// (`key = value` lines); falls back to baked-in defaults. Rust is the single
 /// source of truth — it builds the worker launch spec (see `worker.rs`) and
@@ -87,19 +109,71 @@ impl VocalConfig {
         cfg
     }
 
-    /// Path to the compiled Swift VocalWorker binary: `<engine_dir>/.build/release/VocalWorker`.
+    /// Where to read `vocal.config` from. A bundled app reads an optional
+    /// per-user override at `~/Library/Application Support/Vocal/vocal.config`;
+    /// dev mode reads the repo file (from `VOCAL_ROOT`, then cwd). This also
+    /// fixes the previously flaky bare-relative `"vocal.config"` lookup, which
+    /// failed when macOS launched the Services host with an unpredictable cwd.
+    /// `None` when no file exists (caller falls back to baked defaults).
+    pub fn config_file_path() -> Option<PathBuf> {
+        let candidates: Vec<PathBuf> = if is_bundled() {
+            let home = std::env::var("HOME").unwrap_or_default();
+            vec![PathBuf::from(home).join("Library/Application Support/Vocal/vocal.config")]
+        } else {
+            vec![
+                PathBuf::from(VOCAL_ROOT).join("vocal.config"),
+                PathBuf::from("vocal.config"),
+            ]
+        };
+        candidates.into_iter().find(|p| p.exists())
+    }
+
+    /// Load config from [`config_file_path`], or fall back to baked defaults.
+    /// In bundle mode with no user override, the defaults plus the bundle-aware
+    /// accessors make the app run with zero config files on disk.
+    pub fn load_default() -> VocalConfig {
+        match Self::config_file_path() {
+            Some(p) => VocalConfig::load(&p),
+            None => VocalConfig::default(),
+        }
+    }
+
+    /// Path to the compiled Swift VocalWorker binary. In a bundle it lives in
+    /// `Contents/Resources/`; otherwise at `<engine_dir>/.build/release/VocalWorker`.
     pub fn engine_binary(&self) -> PathBuf {
+        if let Some(res) = bundle_resources() {
+            return res.join("VocalWorker");
+        }
         PathBuf::from(&self.engine_dir).join(".build/release/VocalWorker")
     }
 
-    /// Working directory for the Swift worker (so `default.metallib` is found via cwd).
+    /// Working directory for the worker (so MLX finds `default.metallib` via
+    /// cwd). In a bundle this is `Contents/Resources/`; otherwise `engine_dir`.
     pub fn engine_cwd(&self) -> PathBuf {
+        if let Some(res) = bundle_resources() {
+            return res;
+        }
         PathBuf::from(&self.engine_dir)
     }
 
-    /// Path to the compiled native Chatterbox worker: `<engine_dir>/.build/release/ChatterboxMLWorker`.
+    /// Path to the compiled native Chatterbox worker (`ChatterboxMLWorker`). In a
+    /// bundle: `Contents/Resources/ChatterboxMLWorker`; otherwise
+    /// `<engine_dir>/.build/release/ChatterboxMLWorker`.
     pub fn chatterbox_binary(&self) -> PathBuf {
+        if let Some(res) = bundle_resources() {
+            return res.join("ChatterboxMLWorker");
+        }
         PathBuf::from(&self.engine_dir).join(".build/release/ChatterboxMLWorker")
+    }
+
+    /// Model dir for the native backend (passed as `CHATTERBOX_ML_MODEL`). In a
+    /// bundle: `Contents/Resources/chatterbox-4bit`; otherwise the
+    /// `chatterbox_model_path` from vocal.config.
+    pub fn native_model_dir(&self) -> String {
+        if let Some(res) = bundle_resources() {
+            return res.join("chatterbox-4bit").to_string_lossy().into_owned();
+        }
+        self.chatterbox_model_path.clone()
     }
 
     /// Serialize this config back to `key = value` lines — the mirror of

@@ -6,6 +6,7 @@ edition = "2024"
 [package.metadata.bundle]
 name = "Vocal"
 identifier = "com.kartik.vocal"
+icon = ["src-tauri/icons/icon.icns"]
 category = "public.app-category.utilities"
 short_description = "A lightning-fast local TTS reader."
 osx_info_plist_exts = ["Info.plist.ext"]

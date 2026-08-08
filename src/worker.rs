@@ -29,7 +29,7 @@ pub fn launch_spec(cfg: &VocalConfig) -> WorkerLaunch {
                 envs: vec![
                     (
                         "CHATTERBOX_ML_MODEL".into(),
-                        cfg.chatterbox_model_path.clone(),
+                        cfg.native_model_dir(),
                     ),
                     (
                         "CHATTERBOX_ML_LANG".into(),

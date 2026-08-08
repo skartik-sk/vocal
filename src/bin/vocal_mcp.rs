@@ -56,7 +56,7 @@ impl VocalMcp {
         description = "Speak the given text aloud on this Mac using local on-device Qwen3-TTS (streaming). Returns when playback finishes."
     )]
     async fn speak(&self, Parameters(args): Parameters<SpeakArgs>) -> Json<SpeakResult> {
-        let mut cfg = VocalConfig::load(std::path::Path::new("vocal.config"));
+        let mut cfg = VocalConfig::load_default();
         // Apply per-call overrides (used by the swift backend; ignored by chatterbox).
         if let Some(s) = args.speaker {
             cfg.speaker = s;
