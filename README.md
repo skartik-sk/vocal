@@ -27,7 +27,7 @@ tool so AI agents can speak too.
 
 - 🔒 **100% local** — inference runs on your Mac's Metal GPU. Nothing is sent to a server.
 - 🌐 **Multilingual** — 12 languages (English, Hindi, Chinese, Japanese, Korean, French, German, Spanish, Italian, Portuguese, Russian + dialects) via Qwen3-TTS.
-- 🖱️ **Three ways in** — macOS Service (right-click), the Vocal Manager desktop app, or an MCP `speak` tool for agents.
+- 🖱️ **Three ways in** — macOS Services (right-click → *Speak with Vocal*, and *Stop Vocal* to halt mid-sentence), the Vocal Manager desktop app, or an MCP `speak` tool for agents.
 - ⚡ **Streaming + low memory** — the model loads once and is freed the instant it goes idle, so it sits quietly until you need it.
 - 🎚️ **Pluggable backends** — a native Swift/MLX Chatterbox (the active backend), Qwen3-TTS (Swift, 12 languages), or Chatterbox via Python mlx-audio.
 
@@ -78,7 +78,7 @@ Logs always land in `/tmp/vocal.log` (even when macOS launches a terminal-less c
 ```
 vocal/
 ├── src/                  Rust host crate (`vocal`)
-│   ├── main.rs           macOS Service app — NSServices “Speak with Vocal” handler
+│   ├── main.rs           macOS Service app — “Speak with Vocal” / “Stop Vocal” handlers + Manager launcher
 │   ├── worker.rs         backend-agnostic worker launch spec
 │   ├── config.rs         vocal.config parser (root resolved at compile time)
 │   ├── lib.rs
@@ -97,13 +97,13 @@ vocal/
 ├── scripts/              chatterbox helpers (Python mlx-audio side)
 ├── assets/demo/          demo clips — Chatterbox + Qwen3-TTS, English + Hindi
 ├── Cargo.toml            host crate + cargo-bundle metadata (builds Vocal.app)
-├── Info.plist.ext        registers the macOS Services menu item
+├── Info.plist.ext        registers the macOS Services menu items (Speak / Stop)
 └── vocal.config.example  copy to vocal.config and edit for your machine
 ```
 
 ## Setup
 
-> **Requirements:** an Apple Silicon Mac (macOS 14+), Xcode command-line tools, Rust, Node for Tauri, and Swift 5.9+.
+> **Requirements:** an Apple Silicon Mac (macOS 14+), Xcode command-line tools, Rust, and Swift 5.9+.
 
 ### 1. Download a model
 
@@ -142,12 +142,15 @@ cargo install cargo-bundle     # one-time prerequisite
 ./scripts/build-app.sh ~/.cache/huggingface/hub/models--mlx-community--chatterbox-4bit/snapshots/<hash>
 ```
 
-This compiles the Swift MLX engine and the Rust host, runs `cargo bundle`, and
-copies the worker binary, `default.metallib`, the `chatterbox-4bit` model, and
-the MCP server into `Vocal.app`. The result is a **self-contained ~615 MB app**
-that runs with no repo, no build cache, and no HF cache left on disk — everything
-it needs (right-click Service **and** the agent `speak` tool) lives inside the
-bundle. (Find the `<hash>` under the `snapshots/` dir from step 1.)
+This compiles the Rust host, MCP server, and the Tauri Manager, runs `cargo
+bundle`, and copies the worker binary, `default.metallib`, the `chatterbox-4bit`
+model, the MCP server, and the Manager GUI into `Vocal.app`. The result is a
+**self-contained ~650 MB app** that runs with no repo, no build cache, and no HF
+cache left on disk — everything it needs (right-click Services, the agent
+`speak` tool, and the Manager GUI) lives inside the bundle. (Find the `<hash>`
+under the `snapshots/` dir from step 1. Rebuilding with no HF cache on disk? The
+model can come from the installed app itself:
+`./scripts/build-app.sh /Applications/Vocal.app/Contents/Resources/chatterbox-4bit`.)
 
 ### 4. Install & register the Service
 
@@ -157,13 +160,20 @@ bundle. (Find the `<hash>` under the `snapshots/` dir from step 1.)
 ```
 
 Now select text anywhere → right-click → **Services → Speak with Vocal**.
+Pasted something too long? Select any text (Services are selection-based) →
+right-click → **Services → Stop Vocal** — playback halts instantly, no Activity
+Monitor needed.
 (Live logs: `tail -f /tmp/vocal.log`.)
 
-### 5. (Optional) Run the Vocal Manager GUI
+### 5. The Vocal Manager GUI
+
+The Manager is **embedded in Vocal.app** (`Contents/Managers/`) — just open
+Vocal.app and the Manager window appears; clicking the app again while it's
+running brings the window back. To hack on the GUI itself:
 
 ```bash
 cd src-tauri
-cargo tauri dev                  # or: cargo tauri build
+cargo tauri dev
 ```
 
 ## Backends

@@ -19,12 +19,20 @@ fn is_bundled() -> bool {
 
 /// `Contents/Resources/` of the running `.app`, or `None` in dev mode. A bundled
 /// Vocal resolves its worker binary, `default.metallib`, and model dir relative
-/// to this — so it runs with no repo on disk.
-fn bundle_resources() -> Option<PathBuf> {
-    if !is_bundled() {
+/// to this — so it runs with no repo on disk. When the **Vocal Manager** runs
+/// nested inside Vocal.app (`…/Contents/Managers/Vocal Manager.app/…`), this
+/// resolves to the OUTER app's Resources — the Manager shares the host's
+/// worker/model/engine (its own bundle only carries an icon).
+pub fn bundle_resources() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let exe_str = exe.to_string_lossy();
+    // Nested Manager: everything above "/Contents/Managers/" is the outer .app.
+    if let Some(root) = exe_str.find("/Contents/Managers/") {
+        return Some(PathBuf::from(&exe_str[..root]).join("Contents/Resources"));
+    }
+    if !exe_str.contains(".app/Contents/MacOS/") {
         return None;
     }
-    let exe = std::env::current_exe().ok()?;
     let contents = exe.parent()?.parent()?; // …/Contents/MacOS → …/Contents
     Some(contents.join("Resources"))
 }
@@ -116,7 +124,18 @@ impl VocalConfig {
     /// failed when macOS launched the Services host with an unpredictable cwd.
     /// `None` when no file exists (caller falls back to baked defaults).
     pub fn config_file_path() -> Option<PathBuf> {
-        let candidates: Vec<PathBuf> = if is_bundled() {
+        Self::config_candidates().into_iter().find(|p| p.exists())
+    }
+
+    /// The config path we prefer even when no file exists yet — the first
+    /// candidate ([`config_candidates`]). Tools that SAVE the config (Vocal
+    /// Manager → Settings) write here, so edits land where the host reads.
+    pub fn preferred_config_path() -> PathBuf {
+        Self::config_candidates()[0].clone()
+    }
+
+    fn config_candidates() -> Vec<PathBuf> {
+        if is_bundled() {
             let home = std::env::var("HOME").unwrap_or_default();
             vec![PathBuf::from(home).join("Library/Application Support/Vocal/vocal.config")]
         } else {
@@ -124,8 +143,7 @@ impl VocalConfig {
                 PathBuf::from(VOCAL_ROOT).join("vocal.config"),
                 PathBuf::from("vocal.config"),
             ]
-        };
-        candidates.into_iter().find(|p| p.exists())
+        }
     }
 
     /// Load config from [`config_file_path`], or fall back to baked defaults.

@@ -17,4 +17,17 @@
             <string>NSStringPboardType</string>
         </array>
     </dict>
+    <dict>
+        <key>NSMenuItem</key>
+        <dict>
+            <key>default</key>
+            <string>Stop Vocal</string>
+        </dict>
+        <key>NSMessage</key>
+        <string>handleStopSpeech</string>
+        <key>NSSendTypes</key>
+        <array>
+            <string>NSStringPboardType</string>
+        </array>
+    </dict>
 </array>

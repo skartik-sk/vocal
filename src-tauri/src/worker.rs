@@ -6,12 +6,22 @@
 //! unloads by closing stdin (worker exits → RAM/GPU freed instantly).
 //!
 //! No changes to the Swift/Python workers — the manager only reads their
-//! existing log lines:
-//!   `⏳ Loading model: <path>`      → Loading
-//!   `✅ Model loaded in <Xs>...`    → Ready (captures X)
-//!   `🗣️ ... playing:` / `text:->`  → Speaking
-//!   `🛑 stdin closed...`            → Idle (clean shutdown)
-//!   worker exits nonzero            → Error
+//! existing log lines. Two formats are recognized (see [`update_state`]):
+//!   ChatterboxMLWorker (native):
+//!     `] loading <path>`                          → Loading
+//!     `✅ loaded multilingual` / `Waiting for sentences...` → Ready
+//!     `🗣️ <x>s — <text>`                          → Speaking
+//!     `🛑 idle timeout (Ns) or stdin closed.`     → Idle (clean shutdown)
+//!   VocalWorker (Qwen):
+//!     `⏳ Loading model: <path>`                  → Loading
+//!     `✅ Model loaded in <Xs>. Waiting for...`   → Ready (captures X)
+//!     `... playing:` / `text:->`                  → Speaking
+//!     `🛑 stdin closed...`                        → Idle
+//!   worker exits nonzero                          → Error
+//!
+//! Unlike the Services host — which keeps the worker's default 30s
+//! `CHATTERBOX_ML_IDLE_SECS` (freeing RAM right after a speak) — the manager
+//! parks the loaded worker for 30 minutes so Test-tab sessions survive pauses.
 
 use std::io::Write;
 use std::process::{ChildStdin, Command, Stdio};
@@ -115,6 +125,11 @@ impl WorkerManager {
         for (k, v) in &spec.envs {
             cmd.env(k, v);
         }
+        // The manager preloads the worker and expects it to stay parked between
+        // test speaks; the worker's 30s idle timeout would kill it mid-session.
+        // launch_spec deliberately does NOT set this — the Services host keeps
+        // the 30s default so RAM frees right after a right-click speak.
+        cmd.env("CHATTERBOX_ML_IDLE_SECS", "1800");
         if let Some(cwd) = &spec.cwd {
             cmd.current_dir(cwd);
         }
@@ -293,26 +308,35 @@ impl WorkerManager {
     }
 }
 
-/// Parse a worker stdout/stderr line into state transitions + log.
+/// Parse a worker stdout/stderr line into state transitions + log. Handles
+/// both workers' formats — ChatterboxMLWorker (native) and VocalWorker (Qwen).
+/// Positive markers are matched BEFORE the error-keyword catch-all so normal
+/// chatter on either pipe never flips the state to Error.
 fn update_state(inner: &Arc<Mutex<WorkerInner>>, line: &str) {
     let mut w = inner.lock().unwrap();
     push_log(&mut w, line.to_string());
     w.last_line = line.to_string();
 
-    if line.contains("Loading model") {
-        w.phase = Phase::Loading;
-    } else if line.contains("Model loaded in") {
+    let lower = line.to_lowercase();
+    if lower.contains("waiting for sentences") || lower.contains("✅ loaded") {
+        // Qwen: "✅ Model loaded in 1.24s. Waiting for sentences..."
+        // Native: "✅ loaded multilingual" → "ready (...). Waiting for sentences..."
         w.phase = Phase::Ready;
-        // e.g. "✅ Model loaded in 1.24s. Waiting for sentences..."
         if let Some(secs) = extract_seconds(line) {
             w.load_seconds = Some(secs);
         }
-    } else if line.contains("playing:") || line.contains("text:->") {
+    } else if lower.contains("loading") {
+        // Qwen "⏳ Loading model: <path>" / native "] loading <path> ..."
+        w.phase = Phase::Loading;
+    } else if line.contains("playing:") || line.contains("text:->") || line.contains("🗣") {
         w.phase = Phase::Speaking;
-    } else if line.contains("stdin closed") {
+    } else if lower.contains("stdin closed") || lower.contains("idle timeout") {
         w.phase = Phase::Idle;
         w.running = false;
-    } else if line.starts_with("[stderr]") || line.contains("error") {
+    } else if lower.contains("error") || lower.contains("failed") || lower.contains("fatal") || lower.contains("panic") {
+        // Explicit error keywords on either pipe. Benign stderr chatter (e.g.
+        // "memory cap: …") must NOT flip the state — a real crash surfaces as
+        // a nonzero exit through the watchdog instead.
         w.error = Some(line.to_string());
         w.phase = Phase::Error;
     }
@@ -371,6 +395,45 @@ mod tests {
         let (_inner, s3) = inner_with(&["🛑 stdin closed. Freeing GPU memory and exiting."]);
         assert_eq!(s3.phase, Phase::Idle);
         assert_eq!(s3.running, false);
+    }
+
+    #[test]
+    fn parses_chatterbox_native_lines() {
+        // Real lines emitted by the native worker (native_chatterbox backend).
+        let (_inner, state) = inner_with(&[
+            "[ChatterboxMLWorker] memory cap: 1024 MB (cached=0, peak=0)",
+            "[ChatterboxMLWorker] loading /Applications/Vocal.app/Contents/Resources/chatterbox-4bit ...",
+        ]);
+        assert_eq!(state.phase, Phase::Loading);
+
+        let (_i2, s2) = inner_with(&[
+            "[ChatterboxML] ✅ loaded multilingual (t3 30L + flow + vocoder)",
+            "[ChatterboxMLWorker] ready (auto-detect; config lang=hi). Waiting for sentences...",
+        ]);
+        assert_eq!(s2.phase, Phase::Ready);
+        assert_eq!(s2.load_seconds, None);
+
+        let (_i3, s3) = inner_with(&["[ChatterboxMLWorker] 🗣️ 1.6s — Hello there"]);
+        assert_eq!(s3.phase, Phase::Speaking);
+
+        let (_i4, s4) = inner_with(&[
+            "[ChatterboxMLWorker] 🛑 idle timeout (30s) or stdin closed. Freeing GPU memory and exiting.",
+        ]);
+        assert_eq!(s4.phase, Phase::Idle);
+        assert_eq!(s4.running, false);
+    }
+
+    #[test]
+    fn benign_stderr_never_flips_ready_to_error() {
+        // Memory-cap chatter must not clobber the Ready state (the catch-all
+        // error rule sits last in the match chain).
+        let (_inner, state) = inner_with(&[
+            "[ChatterboxML] ✅ loaded multilingual (t3 30L + flow + vocoder)",
+            "[ChatterboxMLWorker] ready (auto-detect; config lang=hi). Waiting for sentences...",
+            "[stderr] [ChatterboxMLWorker] memory cap: 1024 MB (cached=0, peak=0)",
+        ]);
+        assert_eq!(state.phase, Phase::Ready);
+        assert_eq!(state.error, None);
     }
 
     #[test]

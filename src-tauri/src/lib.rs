@@ -7,17 +7,16 @@
 
 pub mod worker;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Mutex;
 
-use vocal::VOCAL_ROOT;
-
-/// Locate `vocal.config`: explicit env override, else the baked project root.
-/// The root crate's defaults are absolute, so this works no matter the cwd.
+/// Locate `vocal.config`: explicit env override, else the bundle-aware locator
+/// from the root crate (App Support when bundled, the repo file in dev) — even
+/// when it doesn't exist yet, so Settings edits land where the host reads.
 pub fn config_path() -> PathBuf {
     std::env::var_os("VOCAL_CONFIG")
         .map(PathBuf::from)
-        .unwrap_or_else(|| Path::new(VOCAL_ROOT).join("vocal.config"))
+        .unwrap_or_else(vocal::VocalConfig::preferred_config_path)
 }
 
 /// Live worker manager shared across commands.
@@ -100,6 +99,16 @@ pub mod commands {
         Some(total)
     }
 
+    /// Persist a config: create the parent dir first (the App Support location
+    /// doesn't necessarily exist on a fresh install), then write.
+    fn write_config(path: &Path, cfg: &VocalConfig) -> Result<(), String> {
+        if let Some(dir) = path.parent() {
+            fs::create_dir_all(dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+        }
+        fs::write(path, cfg.serialize())
+            .map_err(|e| format!("failed to write {}: {e}", path.display()))
+    }
+
     /// Discover Qwen3-TTS checkpoints next to the configured `model_path` (the
     /// project's model dir holds 0.6B and 1.7B variants). Falls back to just the
     /// configured path. Returns the list sorted by name.
@@ -107,11 +116,7 @@ pub mod commands {
         cfg: &VocalConfig,
         sizes: &Mutex<HashMap<String, u64>>,
     ) -> Vec<QwenModel> {
-        fn build(
-            p: &Path,
-            cfg_model_path: &str,
-            sizes: &Mutex<HashMap<String, u64>>,
-        ) -> QwenModel {
+        fn build(p: &Path, cfg: &VocalConfig, sizes: &Mutex<HashMap<String, u64>>) -> QwenModel {
             let path = p.to_string_lossy().into_owned();
             let name = p
                 .file_name()
@@ -131,7 +136,9 @@ pub mod commands {
             } else {
                 None
             };
-            let active = path == cfg_model_path;
+            // "in use" only when the Qwen (swift) backend is actually active —
+            // a stale model_path under another backend must never light it up.
+            let active = cfg.backend == "swift" && path == cfg.model_path;
             QwenModel {
                 path,
                 name,
@@ -154,14 +161,19 @@ pub mod commands {
                             .as_deref()
                             .is_some_and(|n| n.contains("Qwen3-TTS") && n.ends_with("-4bit"))
                     {
-                        found.push(build(&p, &cfg.model_path, sizes));
+                        found.push(build(&p, cfg, sizes));
                     }
                 }
             }
         }
-        // Ensure the configured path is always present even if the scan missed it.
+        // Ensure the configured path is listed — but only when it exists or the
+        // swift backend genuinely uses it. A deleted checkpoint under another
+        // backend shouldn't haunt the UI as a dead card.
         if !found.iter().any(|m| m.path == cfg.model_path) {
-            found.push(build(&configured, &cfg.model_path, sizes));
+            let p = PathBuf::from(&cfg.model_path);
+            if p.is_dir() || cfg.backend == "swift" {
+                found.push(build(&p, cfg, sizes));
+            }
         }
         found.sort_by(|a, b| a.name.cmp(&b.name));
         found
@@ -219,12 +231,22 @@ pub mod commands {
                 s.label = "Chatterbox (Native)".into();
                 s.binary = cfg.chatterbox_binary().to_string_lossy().into_owned();
                 s.binary_exists = cfg.chatterbox_binary().is_file();
-                s.model_path = cfg.chatterbox_model_path.clone();
-                let p = Path::new(&cfg.chatterbox_model_path);
+                // native_model_dir() is bundle-aware — in the installed app it
+                // points at Contents/Resources/chatterbox-4bit even when the
+                // config's raw `chatterbox_model_path` is empty or dev-stale.
+                s.model_path = cfg.native_model_dir();
+                let p = Path::new(&s.model_path);
                 s.model_exists = p.is_dir();
                 s.model_bytes = s.model_exists.then(|| size_of(p)).flatten();
-                s.model_note = "⚠️ Experimental — the full pipeline runs (T3→S3→vocoder) but the output is still being debugged (noise). Use Chatterbox (Python) for clean audio."
-                    .into();
+                s.model_note = if s.active && s.binary_exists && s.model_exists {
+                    "✅ Ready — pure Swift/MLX Chatterbox (English + Hindi), no Python.".into()
+                } else if !s.binary_exists {
+                    "Worker binary not found — rebuild the app.".into()
+                } else if !s.model_exists {
+                    "Model dir not found.".into()
+                } else {
+                    "Pure Swift/MLX Chatterbox (English + Hindi), no Python.".into()
+                };
             }
         }
         s
@@ -241,8 +263,7 @@ pub mod commands {
     #[tauri::command]
     pub fn save_config(cfg: VocalConfig) -> Result<(), String> {
         let path = config_path();
-        fs::write(&path, cfg.serialize())
-            .map_err(|e| format!("failed to write {}: {e}", path.display()))
+        write_config(&path, &cfg)
     }
 
     /// Point the Qwen (swift) backend at a different local checkpoint, e.g. the
@@ -253,8 +274,7 @@ pub mod commands {
         let mut cfg = VocalConfig::load(&path);
         cfg.backend = "swift".into();
         cfg.model_path = model_path;
-        fs::write(&path, cfg.serialize())
-            .map_err(|e| format!("failed to write {}: {e}", path.display()))
+        write_config(&path, &cfg)
     }
 
     /// Switch the active TTS backend: "swift" (Qwen), "chatterbox" (Python),
@@ -269,8 +289,7 @@ pub mod commands {
         let path = config_path();
         let mut cfg = VocalConfig::load(&path);
         cfg.backend = backend;
-        fs::write(&path, cfg.serialize())
-            .map_err(|e| format!("failed to write {}: {e}", path.display()))?;
+        write_config(&path, &cfg)?;
         // Restart the worker under the new backend (kills any existing one first).
         let _ = state.worker.stop();
         state.worker.start(&VocalConfig::load(&path))
@@ -326,6 +345,12 @@ pub mod commands {
     // client config into `.mcp.json`, and smoke-test the JSON-RPC handshake from the UI.
 
     fn mcp_binary_path() -> PathBuf {
+        // Bundled: the server ships inside the app (Contents/MacOS/vocal_mcp).
+        if let Some(res) = vocal::config::bundle_resources() {
+            if let Some(contents) = res.parent() {
+                return contents.join("MacOS/vocal_mcp");
+            }
+        }
         Path::new(VOCAL_ROOT).join("target/release/vocal_mcp")
     }
 
