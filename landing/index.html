@@ -7,24 +7,24 @@
 <meta name="description" content="Vocal is an on-device text-to-speech engine for macOS. Select any text, right-click, and your Mac reads it aloud — no cloud, no internet, nothing leaves your machine." />
 <style>
   :root {
-    /* ground + surfaces */
-    --bg:        #07070B;
-    --surface:   #11111A;
-    --surface-2: #17171F;
-    --surface-3: #1C1C26;
+    /* ground + surfaces — graphite, matches the Vocal Manager */
+    --bg:        #141519;
+    --surface:   #1B1D21;
+    --surface-2: #212429;
+    --surface-3: #282B31;
     /* lines */
-    --border:    rgba(255,255,255,0.08);
-    --border-2:  rgba(255,255,255,0.14);
+    --border:    rgba(255,255,255,0.07);
+    --border-2:  rgba(255,255,255,0.13);
     /* text */
-    --text:      #ECECF1;
-    --muted:     #9B9BAB;
-    --muted-2:   #6A6A74;
-    /* brand — violet */
-    --accent:    #8B5CF6;
-    --accent-2:  #A78BFA;
-    --accent-d:  #7C3AED;
-    --accent-soft: rgba(139,92,246,0.16);
-    --accent-glow: rgba(139,92,246,0.42);
+    --text:      #E7E8EA;
+    --muted:     #9CA1A8;
+    --muted-2:   #64686F;
+    /* brand — restrained steel blue */
+    --accent:    #4E77B4;
+    --accent-2:  #8FB0DC;
+    --accent-d:  #446AA9;
+    --accent-soft: rgba(78,119,180,0.14);
+    --accent-glow: rgba(78,119,180,0.30);
     /* type */
     --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", system-ui, sans-serif;
     --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
@@ -44,22 +44,6 @@
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
     overflow-x: hidden;
-  }
-
-  /* ambient ground glow behind the hero */
-  body::before {
-    content: "";
-    position: fixed;
-    inset: -20vh 0 auto 0;
-    height: 90vh;
-    background:
-      radial-gradient(60% 50% at 50% 0%, var(--accent-glow) 0%, transparent 70%),
-      radial-gradient(40% 40% at 78% 8%, rgba(124,58,237,0.20) 0%, transparent 70%);
-    -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 78%);
-            mask-image: linear-gradient(to bottom, #000 0%, transparent 78%);
-    opacity: 0.55;
-    pointer-events: none;
-    z-index: 0;
   }
 
   a { color: inherit; text-decoration: none; }
@@ -84,9 +68,10 @@
   .nav-link { font-size: 14px; color: var(--muted); transition: color .18s; }
   .nav-link:hover { color: var(--text); }
   .pill-tag {
-    font-size: 12px; font-weight: 550; color: var(--accent-2);
-    padding: 5px 11px; border-radius: 999px;
-    background: var(--accent-soft); border: 1px solid var(--border);
+    font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
+    color: var(--muted);
+    padding: 4px 9px; border-radius: 4px;
+    background: var(--surface-3); border: 1px solid var(--border);
   }
 
   /* ---------- hero ---------- */
@@ -123,26 +108,17 @@
     padding: 13px 13px 13px 13px;
     background: linear-gradient(180deg, var(--surface-2), var(--surface));
     border: 1px solid var(--border-2);
-    border-radius: 16px;
+    border-radius: 12px;
     box-shadow:
-      0 1px 0 rgba(255,255,255,0.05) inset,
-      0 24px 60px -28px var(--accent-glow),
-      0 8px 30px -12px rgba(0,0,0,0.6);
+      0 1px 0 rgba(255,255,255,0.04) inset,
+      0 20px 44px -24px rgba(0,0,0,0.55);
     animation: float 6s ease-in-out infinite;
   }
-  .cmdbar::after { /* outer accent halo */
-    content: ""; position: absolute; inset: -1px; border-radius: 17px;
-    background: linear-gradient(180deg, var(--accent-soft), transparent 60%);
-    -webkit-mask: linear-gradient(#000,#000) content-box, linear-gradient(#000,#000);
-            mask: linear-gradient(#000,#000) content-box, linear-gradient(#000,#000);
-    -webkit-mask-composite: xor; mask-composite: exclude;
-    padding: 1px; pointer-events: none; opacity: .7;
-  }
   .cmd-mark {
-    width: 34px; height: 34px; border-radius: 10px; flex: none;
-    background: linear-gradient(150deg, var(--accent-2), var(--accent-d));
+    width: 34px; height: 34px; border-radius: 8px; flex: none;
+    background: linear-gradient(180deg, #2E3238, #1F2226);
+    border: 1px solid rgba(255,255,255,0.14);
     display: grid; place-items: center;
-    box-shadow: 0 4px 14px -4px var(--accent-glow);
   }
   .cmd-mark svg { width: 20px; height: 20px; }
   .cmd-text {
@@ -179,8 +155,8 @@
     border: 1px solid transparent; transition: transform .16s, background .18s, border-color .18s;
   }
   .btn svg { width: 16px; height: 16px; }
-  .btn-primary { background: var(--accent); color: #fff; box-shadow: 0 10px 28px -12px var(--accent-glow); }
-  .btn-primary:hover { background: var(--accent-2); transform: translateY(-1px); }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-d); transform: translateY(-1px); }
   .btn-ghost { background: var(--surface); color: var(--text); border-color: var(--border-2); }
   .btn-ghost:hover { border-color: var(--accent); transform: translateY(-1px); }
 
@@ -199,14 +175,14 @@
   .card {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 16px;
+    border-radius: 12px;
     padding: 26px 24px;
     display: flex; flex-direction: column; gap: 14px;
     transition: border-color .2s, transform .2s, background .2s;
   }
   .card:hover { border-color: var(--border-2); transform: translateY(-3px); background: var(--surface-2); }
   .card .ic-tile {
-    width: 40px; height: 40px; border-radius: 11px;
+    width: 40px; height: 40px; border-radius: 8px;
     background: var(--accent-soft); border: 1px solid var(--border);
     display: grid; place-items: center;
   }
@@ -262,15 +238,15 @@
 <!-- icon + brand sprite -->
 <svg class="sprite" aria-hidden="true">
   <defs>
-    <linearGradient id="vg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#A78BFA"/><stop offset="1" stop-color="#7C3AED"/>
+    <linearGradient id="vg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2E3238"/><stop offset="1" stop-color="#1F2226"/>
     </linearGradient>
     <symbol id="brand" viewBox="0 0 32 32">
-      <rect x="1" y="1" width="30" height="30" rx="9" fill="url(#vg)"/>
-      <g fill="#fff">
+      <rect x="1" y="1" width="30" height="30" rx="7" fill="url(#vg)" stroke="rgba(255,255,255,0.14)" stroke-width="1"/>
+      <g fill="#E7E8EA">
         <rect x="8.4" y="13" width="2.6" height="6" rx="1.3"/>
         <rect x="12.7" y="10" width="2.6" height="12" rx="1.3"/>
-        <rect x="17.0" y="6.5" width="2.6" height="19" rx="1.3"/>
+        <rect x="17.0" y="6.5" width="2.6" height="19" rx="1.3" fill="#8FB0DC"/>
         <rect x="21.3" y="11.5" width="2.6" height="9" rx="1.3"/>
       </g>
     </symbol>
@@ -377,7 +353,7 @@
         <span class="ic-tile"><svg class="ic"><use href="#i-globe"/></svg></span>
         <div>
           <h4>Multilingual</h4>
-          <p>12 languages out of the box — English, Hindi, Chinese, Japanese, Korean, French, German, and more.</p>
+          <p>English and Hindi on the native engine today; the pluggable Qwen3 backend covers more languages.</p>
         </div>
       </div>
       <div class="feat">
@@ -391,7 +367,7 @@
         <span class="ic-tile"><svg class="ic"><use href="#i-layers"/></svg></span>
         <div>
           <h4>Pluggable backends</h4>
-          <p>Qwen3-TTS in Swift, Chatterbox via Python mlx-audio, or an experimental pure-Swift Chatterbox port.</p>
+          <p>A pure-Swift Chatterbox engine by default — no Python — with Qwen3-TTS and mlx-audio backends a setting away.</p>
         </div>
       </div>
     </div>
