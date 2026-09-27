@@ -63,10 +63,13 @@ function renderCards() {
   if (!status) return;
   const container = $("backend-cards");
   container.innerHTML = "";
+  const running = !!(worker && worker.running);
+  const workerBackend = running ? worker.backend : null;
 
   for (const b of status.backends) {
     const card = document.createElement("div");
     card.className = "card" + (b.active ? " active" : "");
+    const isWorkerHere = workerBackend === b.backend;
 
     const head = document.createElement("div");
     head.className = "card-head";
@@ -81,6 +84,13 @@ function renderCards() {
       act.textContent = "active";
       badges.appendChild(act);
     }
+    if (isWorkerHere) {
+      // Live phase badge on the card that actually owns the running worker.
+      const ph = document.createElement("span");
+      ph.className = "badge " + (phaseClass(worker.phase) || "");
+      ph.textContent = phaseLabel(worker.phase);
+      badges.appendChild(ph);
+    }
     head.appendChild(title);
     head.appendChild(badges);
 
@@ -89,20 +99,31 @@ function renderCards() {
     const binRow = rowEl("Binary", b.binary, b.binary_exists ? "ok" : "err");
     const binStatus = rowEl("Binary ok?", b.binary_exists ? "yes" : "missing", b.binary_exists ? "ok" : "err");
     const noteRow = b.model_note ? rowEl("Note", b.model_note, "") : null;
+    const workerRow = isWorkerHere
+      ? rowEl(
+          "Worker",
+          `${phaseLabel(worker.phase)}${worker.pid ? ` · pid ${worker.pid}` : ""}` +
+            `${worker.load_seconds != null ? ` · loaded in ${worker.load_seconds.toFixed(2)}s` : ""}`,
+          phaseClass(worker.phase),
+        )
+      : rowEl("Worker", running ? "not loaded — unload the other backend first" : "not loaded", "");
 
     const actions = document.createElement("div");
     actions.className = "card-actions";
 
     const loadBtn = document.createElement("button");
     loadBtn.className = "primary";
-    loadBtn.textContent = "Load";
-    loadBtn.disabled = busy.start || (worker && worker.running);
+    // One shared worker: a card whose backend isn't the config's current one
+    // switches the backend (and restarts the worker) when clicked.
+    loadBtn.textContent = b.backend === status.backend ? "Load" : "Switch + Load";
+    loadBtn.disabled = busy.start || running;
     loadBtn.addEventListener("click", () => startWorker(b.backend));
     actions.appendChild(loadBtn);
 
     const unloadBtn = document.createElement("button");
     unloadBtn.textContent = "Unload";
-    unloadBtn.disabled = busy.stop || !(worker && worker.running);
+    // Only the card that owns the running worker can unload it.
+    unloadBtn.disabled = busy.stop || !isWorkerHere;
     unloadBtn.addEventListener("click", stopWorker);
     actions.appendChild(unloadBtn);
 
@@ -112,6 +133,7 @@ function renderCards() {
     card.appendChild(binRow);
     card.appendChild(binStatus);
     if (noteRow) card.appendChild(noteRow);
+    card.appendChild(workerRow);
     card.appendChild(actions);
 
     container.appendChild(card);
@@ -347,6 +369,14 @@ async function loadMcp() {
     b("binary", s.binary_exists, s.binary_exists ? "built" : "NOT built");
     b("config", s.config_installed, s.config_installed ? "installed" : "not installed");
     $("mcp-config").textContent = s.config_json;
+    // Doc-verified all-projects registrations: Claude Code user scope writes
+    // ~/.claude.json (top-level mcpServers); Cursor reads ~/.cursor/mcp.json.
+    $("mcp-user-cmd").textContent = `claude mcp add --scope user vocal ${s.binary}`;
+    $("mcp-cursor-json").textContent = JSON.stringify(
+      { mcpServers: { vocal: { command: s.binary } } },
+      null,
+      2,
+    );
   } catch (e) {
     $("mcp-config").textContent = "error: " + String(e);
   }
@@ -369,6 +399,17 @@ async function installMcp() {
 async function copyMcp() {
   try {
     await navigator.clipboard.writeText($("mcp-config").textContent);
+    $("mcp-status").textContent = "copied ✓";
+    $("mcp-status").className = "status-note ok";
+  } catch (e) {
+    $("mcp-status").textContent = "copy failed";
+    $("mcp-status").className = "status-note err";
+  }
+}
+
+async function copyMcpUser() {
+  try {
+    await navigator.clipboard.writeText($("mcp-user-cmd").textContent);
     $("mcp-status").textContent = "copied ✓";
     $("mcp-status").className = "status-note ok";
   } catch (e) {
@@ -440,6 +481,7 @@ async function init() {
   $("btn-save-config").addEventListener("click", saveSettings);
   $("btn-mcp-install").addEventListener("click", installMcp);
   $("btn-mcp-copy").addEventListener("click", copyMcp);
+  $("btn-mcp-copy-user").addEventListener("click", copyMcpUser);
   $("btn-mcp-test").addEventListener("click", testMcp);
 
   // Load config once for the settings form

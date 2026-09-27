@@ -87,12 +87,21 @@
         <p class="section-sub">The <code>vocal_mcp</code> binary exposes Vocal TTS as a tool AI clients (Claude Code, Cursor, …) can call. Install the snippet below into the client config, or write it to this project's <code>.mcp.json</code>.</p>
         <div id="mcp-badges" class="badges"></div>
         <div class="field">
-          <label>Client config (<code>.mcp.json</code>)</label>
+          <label>All projects — Claude Code (user scope → <code>~/.claude.json</code>)</label>
+          <pre id="mcp-user-cmd" class="mono"></pre>
+        </div>
+        <div class="field">
+          <label>All projects — Cursor (<code>~/.cursor/mcp.json</code>)</label>
+          <pre id="mcp-cursor-json" class="mono"></pre>
+        </div>
+        <div class="field">
+          <label>This project only (<code>.mcp.json</code> at the repo root)</label>
           <pre id="mcp-config" class="mono"></pre>
         </div>
         <div class="test-actions">
           <button id="btn-mcp-install" class="primary">Write to .mcp.json</button>
           <button id="btn-mcp-copy">Copy config</button>
+          <button id="btn-mcp-copy-user">Copy Claude Code command</button>
           <button id="btn-mcp-test">Test server</button>
           <span id="mcp-status" class="status-note"></span>
         </div>

@@ -53,6 +53,9 @@ pub enum Phase {
 pub struct WorkerState {
     pub running: bool,
     pub phase: Phase,
+    /// Which backend the running worker was spawned for, so the UI can pin
+    /// Load/Unload/state to the right card (there is one shared worker).
+    pub backend: Option<String>,
     pub pid: Option<u32>,
     pub load_seconds: Option<f64>,
     pub last_line: String,
@@ -81,6 +84,7 @@ struct WorkerHandle {
 pub struct WorkerInner {
     pub running: bool,
     pub phase: Phase,
+    pub backend: Option<String>,
     pub pid: Option<u32>,
     pub load_seconds: Option<f64>,
     pub last_line: String,
@@ -151,6 +155,7 @@ impl WorkerManager {
             let mut w = inner.lock().unwrap();
             w.running = true;
             w.phase = Phase::Loading;
+            w.backend = Some(cfg.backend.clone());
             w.pid = Some(pid);
             w.load_seconds = None;
             w.error = None;
@@ -186,6 +191,7 @@ impl WorkerManager {
             {
                 let mut w = watch_inner.lock().unwrap();
                 w.running = false;
+                w.backend = None;
                 w.pid = None;
                 let note = match &status {
                     Ok(s) if s.success() => "worker exited cleanly".to_string(),
@@ -290,6 +296,7 @@ impl WorkerManager {
         WorkerState {
             running: w.running,
             phase: w.phase,
+            backend: w.backend.clone(),
             pid: w.pid,
             load_seconds: w.load_seconds,
             last_line: w.last_line.clone(),
@@ -371,6 +378,7 @@ mod tests {
             WorkerState {
                 running: w.running,
                 phase: w.phase,
+                backend: None,
                 pid: None,
                 load_seconds: w.load_seconds,
                 last_line: w.last_line.clone(),
